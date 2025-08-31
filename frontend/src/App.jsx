@@ -6,11 +6,11 @@ function App() {
 
   const handleSubmit = async () =>{
     try{
-      const response = await fetch("http://127.0.0.1:5000/chat",{
+      const response = await fetch("http://127.0.0.1:5000/submit_message",{
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          user_id:123,
+          user_id:'123',
           message:message
         })
       }) 
