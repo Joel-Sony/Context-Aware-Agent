@@ -9,18 +9,14 @@ from datetime import date
 from collections import deque               
 import numpy as np
 from pprint import pprint                  #for pretty printing
+import time
 
-
-# In-memory turn tracker per namespace
-namespace_turn_ids = {}  # {namespace: current_turn_id}
 
 def get_turn_id(namespace):
-    """Retrieves and increments the turn ID for a given user conversation namespace.
-
-    This function uses an in-memory dictionary to keep track of the current turn ID
-    for each user's conversation. It first checks if a turn ID exists for the
-    given namespace. If not, it initializes it by calling 'initialize_turn_id'.
-    It then increments the ID and returns the new value.
+    """Retrieves number of vectors in an index.
+    
+    Since we insert two rows (user + assistant) at every turn,
+    (turn_id is half of total vectors + 1).
 
     Args:
         namespace (str): The unique identifier for the user's conversation.
@@ -28,50 +24,20 @@ def get_turn_id(namespace):
     Returns:
         int: The next turn ID for the conversation.
     """
-    if namespace not in namespace_turn_ids:
-        namespace_turn_ids[namespace] = initialize_turn_id(namespace)
-    namespace_turn_ids[namespace] += 1
-    return namespace_turn_ids[namespace]
+    stats = index.describe_index_stats()
+    namespaces = stats.get("namespaces", {})
 
+    if namespace not in namespaces:
+        # No vectors for this user yet
+        return 1
+    
+    total_rows = namespaces[namespace].get("vector_count", 0)
 
-def initialize_turn_id(namespace):
-    """Initializes the turn ID tracker in Pinecone for a new namespace.
+    if total_rows == 0:
+        return 1
+    else:
+        return (total_rows // 2) + 1  # integer division to avoid float IDs
 
-    This function queries the Pinecone index to check if a "turn_tracker"
-    record already exists for the given namespace. If a tracker is found,
-    it returns the last known turn ID. If no tracker exists, it creates one
-    with a starting ID of 0 and then returns 0.
-
-    Args:
-        namespace (str): The unique identifier for the user's conversation.
-
-    Returns:
-        int: The initial turn ID (0) or the last known turn ID if a tracker exists.
-    """
-    result = index.query(
-        namespace=namespace,
-        vector=[0.0]*1024,  # dummy vector, just need metadata
-        top_k=1,
-        include_metadata=True,
-        filter={"role": {"$eq": "turn_tracker"}}
-    )
-
-    if result.matches:
-        return result.matches[0].metadata["turn_id"]
-
-    # No tracker row exists → create one
-    index.upsert_records(
-        namespace,
-        [
-            {
-                "id": "turn_tracker",
-                "text": "x",                        #i have set text = x cuz text can't be empty
-                "turn_id": 0,
-                "role": "turn_tracker"
-            }
-        ]
-    )
-    return 0
 
 class ShortTermMemory:
     """Saves n number of recent user-assistant messages,
@@ -106,8 +72,10 @@ class ShortTermMemory:
         best_msg, best_sim = max(sims, key=lambda x: x[1])
         return best_msg if best_sim >= threshold else None
 
+
 def cosine_similarity(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
 
 def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.7):
     """
@@ -123,6 +91,7 @@ def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.7):
         list of dict: Relevant memory entries with high similarity.
     """
     if not memory:
+        print("NO MEMORY")
         return []
 
     scored = []
@@ -133,38 +102,69 @@ def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.7):
 
     # Sort by similarity descending
     scored.sort(key=lambda x: x[0], reverse=True)
-
     return [item for _, item in scored[:top_k]]
 
 
-def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top_k=3, threshold=0.7):
+def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top_k=10, threshold=0.7):
     """
     Builds the final LLM prompt including relevant short-term memory.
-    
-    Args:
-        user_query (str): The latest user message.
-        query_embedding (np.ndarray): Embedding of the user query.
-        STM (ShortTermMemory): Short-term memory instance.
-        base_prompt (str): The base system/assistant prompt.
-        top_k (int): Number of context turns to include.
-        threshold (float): Minimum similarity threshold.
-    
-    Returns:
-        str: Final prompt to send to the LLM.
-    """
-    relevant_items = get_relevant_context(query_embedding, STM.cache, top_k, threshold)
 
+    Case 1: If STM not full, include all STM entries.
+    Case 2: If STM full, drop oldest N entries and replace with contextually
+            similar ones from Pinecone.
+    """
+
+    context_items = []
+
+    # Case 1: STM not full → use everything
+    if len(STM.cache) < STM.cache.maxlen:
+        context_items = list(STM.cache)
+
+    else:
+        # Case 2: STM is full → drop oldest N
+        N = 10
+        recent_items = list(STM.cache)[N:]  # keep most recent (maxlen - N)
+
+        # Similarity search in Pinecone to refill N slots
+        result = index.query(
+            namespace="your_namespace_here",      # ⚠️ pass correct user_id/namespace
+            vector=query_embedding.tolist(),
+            top_k=N,
+            include_metadata=True
+        )
+
+        retrieved_items = []
+        for match in result.matches:
+            if match.score >= threshold:
+                retrieved_items.append({
+                    "turn_id": match.metadata.get("turn_id"),
+                    "role": match.metadata.get("role"),
+                    "text": match.metadata.get("text"),
+                    "embedding": None  # no need here, just for prompt
+                })
+
+        # Combine: recent STM (after dropping oldest) + retrieved from DB
+        combined = recent_items + retrieved_items
+
+        seen = set()                                        #if fetched rows are same as the ones already present then its removed
+        deduped = []
+        for item in combined:
+            key = (item.get("turn_id"), item.get("role"))
+            if key not in seen:
+                seen.add(key)
+        deduped.append(item)
+
+        context_items = deduped
+
+    # Build string for LLM
     context_str = "\n".join(
-        [f"{item['role'].capitalize()}: {item['text']}" for item in relevant_items]
+        [f"{item['role'].capitalize()}: {item['text']}" for item in context_items]
     )
 
-    if context_str:
-        context_str = f"Relevant past turns:\n{context_str}\n\n"
-
     final_prompt = f"""{base_prompt}
+Relevant conversation context:
 {context_str}
-User: {user_query}
-Assistant:"""
+User: {user_query}"""
 
     return final_prompt
 
@@ -178,6 +178,7 @@ INDEX_HOST = os.getenv("PINECONE_INDEX_HOST")
 pc = Pinecone(api_key = PINECONE_API_KEY)
 index = pc.Index(host=INDEX_HOST)
 
+### index.delete(delete_all=True, namespace='123')    #to delete all rows
 
 #flask app initialisation
 app = Flask(__name__)
@@ -218,23 +219,12 @@ Keep advice practical, gentle, and caring.
         api_key=OPENROUTER_API_KEY
     )
 
-    completion = client.chat.completions.create(
-    extra_body={},
-    model="moonshotai/kimi-k2:free",
-    messages=[
-        {
-        "role": "assistant",
-        "content": base_prompt + message
-        }
-    ]
-    )
-    reply = completion.choices[0].message.content
-
     user_convo_id = str(uuid.uuid4())              #to generate unique id for user row
     assistant_convo_id = str(uuid.uuid4())         #to generate unique id for assistant row
     today = str(date.today())
     turn_id = get_turn_id(user_id)              #2 rows will be inserted with same turn_id but different roles(assistant/user)
     
+    start = time.time()
     index.upsert_records(
         user_id,
         [
@@ -244,19 +234,25 @@ Keep advice practical, gentle, and caring.
                 "date":today,                   #everything after id and text is part of metadata and can used to filter data later
                 "turn_id":turn_id,  
                 "role":"user"
-            },
-            {
-                "id":assistant_convo_id,
-                "text":reply,
-                "date":today,
-                "turn_id":turn_id,
-                "role":"assistant"
             }
         ]
     ) 
-    
-    res = index.fetch(ids=[user_convo_id], namespace=user_id)       #returns FetchResponse object
 
+    end = time.time()
+
+    retries = 10                                                  
+    delay = 0.1
+    res = None
+
+    for i in range(retries):                
+        res = index.fetch(ids=[user_convo_id], namespace=user_id)
+        if res.vectors:  # found it
+            print('\n Fetch successfull!')
+            break
+        time.sleep(delay * (2 ** i))  # exponential backoff
+    else:
+        raise RuntimeError("Vector not available after retries")
+          
     # Access vectors dict from FetchResponse
     vectors = res.vectors
 
@@ -268,17 +264,38 @@ Keep advice practical, gentle, and caring.
         user_vector,
         STM,
         base_prompt,
-        top_k=3,
+        top_k=10,
         threshold=0.7
     )
+    
+    print(prompt)
 
-    print(STM.cache)
-    completion = client.chat.completions.create(
-        model="moonshotai/kimi-k2:free",
-        messages=[{"role": "assistant", "content": prompt}]
-    )
+    STM.add(turn_id,"user",message,user_vector)
 
-    return jsonify({"reply":reply})
+    # completion = client.chat.completions.create(
+    #     model="moonshotai/kimi-k2:free",
+    #     messages=[{"role": "assistant", "content": prompt}]
+    # )
+
+    # reply = completion.choices[0].message.content
+
+    # print(f"\nPrompt: {prompt}")
+    # index.upsert_records(
+    #     user_id,
+    #     [
+    #         {
+    #             "id":assistant_convo_id,
+    #             "text":reply,
+    #             "date":today,
+    #             "turn_id":turn_id,
+    #             "role":"assistant"
+    #         }
+    #     ]
+    # ) 
+    
+    # return jsonify({"reply":reply})
+    return jsonify({"reply":"dummy text"})
+    
 
 
 
