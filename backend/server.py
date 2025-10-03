@@ -115,9 +115,16 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top
     """
 
     context_items = []
+    query_db = False
 
+    query_norm = query_embedding / np.linalg.norm(query_embedding)
+    trigger_norm = triggerEmbeddings / np.linalg.norm(triggerEmbeddings, axis=1, keepdims=True)
+    sims = trigger_norm @ query_norm
+    
+    query_db = np.any(sims >= threshold)
+            
     # Case 1: STM not full → use everything
-    if len(STM.cache) < STM.cache.maxlen:
+    if len(STM.cache) < STM.cache.maxlen and query_db == False:
         context_items = list(STM.cache)
 
     else:
@@ -152,7 +159,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top
             key = (item.get("turn_id"), item.get("role"))
             if key not in seen:
                 seen.add(key)
-        deduped.append(item)
+                deduped.append(item)
 
         context_items = deduped
 
@@ -177,6 +184,9 @@ INDEX_HOST = os.getenv("PINECONE_INDEX_HOST")
 #Pinecone and index initialisation
 pc = Pinecone(api_key = PINECONE_API_KEY)
 index = pc.Index(host=INDEX_HOST)
+
+#loading the triggerEmbeddings to check if db needs to be queried in advance
+triggerEmbeddings = np.load("triggerEmbeddings.npy")
 
 ### index.delete(delete_all=True, namespace='123')    #to delete all rows
 
