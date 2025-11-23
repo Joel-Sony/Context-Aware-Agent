@@ -12,7 +12,7 @@ from pprint import pprint                  #for pretty printing
 import time
 
 
-def get_turn_id(namespace):
+def get_turn_id(cur_namespace):
     """Retrieves number of vectors in an index.
     
     Since we insert two rows (user + assistant) at every turn,
@@ -24,19 +24,13 @@ def get_turn_id(namespace):
     Returns:
         int: The next turn ID for the conversation.
     """
-    stats = index.describe_index_stats()
-    namespaces = stats.get("namespaces", {})
 
-    if namespace not in namespaces:
-        # No vectors for this user yet
-        return 1
+    for namespace in index.list_namespaces():
+            cur_namespace = str(cur_namespace)
+            if(namespace.name == cur_namespace):
+                return (int(namespace.record_count)//2) + 1
     
-    total_rows = namespaces[namespace].get("vector_count", 0)
-
-    if total_rows == 0:
-        return 1
-    else:
-        return (total_rows // 2) + 1  # integer division to avoid float IDs
+    return 1
 
 
 class ShortTermMemory:
@@ -77,7 +71,7 @@ def cosine_similarity(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
-def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.7):
+def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.4):
     """
     Search short-term memory for the most relevant entries to the query.
     
@@ -105,7 +99,7 @@ def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.7):
     return [item for _, item in scored[:top_k]]
 
 
-def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top_k=10, threshold=0.7):
+def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, namespace, top_k=10, threshold=0.4):
     """
     Builds the final LLM prompt including relevant short-term memory.
 
@@ -134,7 +128,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top
 
         # Similarity search in Pinecone to refill N slots
         result = index.query(
-            namespace="your_namespace_here",      # ⚠️ pass correct user_id/namespace
+            namespace=namespace,      # ⚠️ pass correct user_id/namespace
             vector=query_embedding.tolist(),
             top_k=N,
             include_metadata=True
@@ -167,7 +161,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, top
     context_str = "\n".join(
         [f"{item['role'].capitalize()}: {item['text']}" for item in context_items]
     )
-
+    print(STM.cache)
     final_prompt = f"""{base_prompt}
 Relevant conversation context:
 {context_str}
@@ -188,7 +182,7 @@ index = pc.Index(host=INDEX_HOST)
 #loading the triggerEmbeddings to check if db needs to be queried in advance
 triggerEmbeddings = np.load("triggerEmbeddings.npy")
 
-### index.delete(delete_all=True, namespace='123')    #to delete all rows
+### index.delete(delete_all=True, namespace='   ')    #to delete all rows
 
 #flask app initialisation
 app = Flask(__name__)
@@ -233,7 +227,7 @@ Keep advice practical, gentle, and caring.
     assistant_convo_id = str(uuid.uuid4())         #to generate unique id for assistant row
     today = str(date.today())
     turn_id = get_turn_id(user_id)              #2 rows will be inserted with same turn_id but different roles(assistant/user)
-    
+
     start = time.time()
     index.upsert_records(
         user_id,
@@ -268,46 +262,71 @@ Keep advice practical, gentle, and caring.
 
     # Grab the vector embedding for the user’s message
     user_vector = np.array(vectors[user_convo_id].values)
-
+    user_id = str(user_id)
     prompt = build_prompt_with_context(                             #builds prompt with relevant entries from short-term-memory
         message,
         user_vector,
         STM,
         base_prompt,
         top_k=10,
-        threshold=0.7
+        threshold=0.7,
+        namespace=user_id
     )
     
     print(prompt)
 
     STM.add(turn_id,"user",message,user_vector)
 
-    # completion = client.chat.completions.create(
-    #     model="moonshotai/kimi-k2:free",
-    #     messages=[{"role": "assistant", "content": prompt}]
-    # )
+    completion = client.chat.completions.create(
+        model="google/gemma-3n-e2b-it:free",
+        messages=[{"role": "assistant", "content": prompt}]
+    )
 
-    # reply = completion.choices[0].message.content
+    reply = completion.choices[0].message.content
 
-    # print(f"\nPrompt: {prompt}")
-    # index.upsert_records(
-    #     user_id,
-    #     [
-    #         {
-    #             "id":assistant_convo_id,
-    #             "text":reply,
-    #             "date":today,
-    #             "turn_id":turn_id,
-    #             "role":"assistant"
-    #         }
-    #     ]
-    # ) 
+    print(f"\nPrompt: {prompt}")
+    index.upsert_records(
+        user_id,
+        [
+            {
+                "id":assistant_convo_id,
+                "text":reply,
+                "date":today,
+                "turn_id":turn_id,
+                "role":"assistant"
+            }
+        ]
+    ) 
     
-    # return jsonify({"reply":reply})
-    return jsonify({"reply":"dummy text"})
+    return jsonify({"reply":reply})  
     
 
+@app.route('/get_messages', methods = ['POST'])
+def get_messages():
+    data = request.get_json()
+    user_id = data["user_id"]
 
+    chunk_ids = index.list(namespace=user_id)
+    record_ids = list(chunk_ids)
+
+    all_messages = []
+
+    if record_ids:
+        for all_ids in record_ids:
+            all_records = index.fetch(ids=all_ids, namespace=user_id)
+
+            for id in all_records.vectors:
+                vector = all_records.vectors.get(id) 
+            
+                if vector:
+                    turn_id = vector["metadata"]["turn_id"]
+                    role = vector["metadata"]["role"]
+                    text = vector["metadata"]["text"]
+                    all_messages.append({"sender": role, "text": text, "turn_id":turn_id})
+    all_messages.sort(key = lambda m : (m["turn_id"], 0 if m["sender"] == "user" else 1))
+    all_messages = [{"sender": m["sender"], "text": m["text"]} for m in all_messages]
+    return jsonify({"messages":all_messages})
+    
 
 if __name__ == "__main__":
     app.run(debug=True)
