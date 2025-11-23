@@ -132,7 +132,7 @@ def get_relevant_context(query_embedding, memory, top_k=3, threshold=0.4):
     return [item for _, item in scored[:top_k]]
 
 
-def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, namespace, top_k=10, threshold=0.4):
+def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, namespace, threshold=0.4):
     """
     Builds the final LLM prompt including relevant short-term memory.
 
@@ -161,7 +161,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, nam
 
         # Similarity search in Pinecone to refill N slots
         result = index.query(
-            namespace=namespace,      # ⚠️ pass correct user_id/namespace
+            namespace=namespace,     
             vector=query_embedding.tolist(),
             top_k=N,
             include_metadata=True
@@ -180,7 +180,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, nam
         # Combine: recent STM (after dropping oldest) + retrieved from DB
         combined = recent_items + retrieved_items
 
-        seen = set()                                        #if fetched rows are same as the ones already present then its removed
+        seen = set()                   #if fetched rows are same as the ones already present then its removed
         deduped = []
         for item in combined:
             key = (item.get("turn_id"), item.get("role"))
@@ -190,15 +190,22 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, nam
 
         context_items = deduped
 
+    predicted_mood, confidence = predict_mood(user_query)
+
     # Build string for LLM
     context_str = "\n".join(
         [f"{item['role'].capitalize()}: {item['text']}" for item in context_items]
     )
-    print(STM.cache)
+    print(context_str)
     final_prompt = f"""{base_prompt}
 Relevant conversation context:
 {context_str}
+
+Detected user emotion: {predicted_mood}
+Emotion confidence: {confidence:.2f}
+
 User: {user_query}"""
+    
 
     return final_prompt
 
