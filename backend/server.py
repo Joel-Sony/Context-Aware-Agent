@@ -196,7 +196,7 @@ def build_prompt_with_context(user_query, query_embedding, STM, base_prompt, nam
     context_str = "\n".join(
         [f"{item['role'].capitalize()}: {item['text']}" for item in context_items]
     )
-    print(context_str)
+    
     final_prompt = f"""{base_prompt}
 Relevant conversation context:
 {context_str}
@@ -206,7 +206,7 @@ Emotion confidence: {confidence:.2f}
 
 User: {user_query}"""
     
-
+    print(final_prompt)
     return final_prompt
 
 load_dotenv()
@@ -222,9 +222,9 @@ index = pc.Index(host=INDEX_HOST)
 #loading the triggerEmbeddings to check if db needs to be queried in advance
 triggerEmbeddings = np.load("triggerEmbeddings.npy")
 
-### index.delete(delete_all=True, namespace='   ')    #to delete all rows
+# index.delete(delete_all=True, namespace='123')    #to delete all rows
 
-#flask app initialisation
+# #flask app initialisation
 app = Flask(__name__)
 CORS(app)  
 
@@ -248,7 +248,7 @@ def submit_message():
     """
 
     base_prompt = """
-    You are a kind, empathetic mental health companion. 
+    You are a Lenni: a kind, empathetic mental health companion. 
 Always listen without judgment, validate feelings, 
 and respond with warmth, compassion, and supportive guidance. 
 Keep advice practical, gentle, and caring.
@@ -308,12 +308,10 @@ Keep advice practical, gentle, and caring.
         user_vector,
         STM,
         base_prompt,
-        top_k=10,
         threshold=0.7,
         namespace=user_id
     )
     
-    print(prompt)
 
     STM.add(turn_id,"user",message,user_vector)
 
@@ -324,7 +322,6 @@ Keep advice practical, gentle, and caring.
 
     reply = completion.choices[0].message.content
 
-    print(f"\nPrompt: {prompt}")
     index.upsert_records(
         user_id,
         [

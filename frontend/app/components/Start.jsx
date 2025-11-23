@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Menu, MessageSquare, Plus, Settings } from "lucide-react";
+import { Menu, MessageSquare, Plus, Home } from "lucide-react";
 
 const user_id = 123 //TEMPORARY SINGLE USER 
 
@@ -72,12 +72,12 @@ const Start = () => {
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
       <aside className={`${isSidebarOpen ? 'w-64' : 'w-0'} transition-all duration-300 bg-white border-r border-gray-200 flex flex-col overflow-hidden`}>
-        <div className="p-4 border-b border-gray-200">
+        {/* <div className="p-4 border-b border-gray-200">
           <button className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition">
             <Plus size={20} />
             <span>New Chat</span>
           </button>
-        </div>
+        </div> */}
         
         <div className="flex-1 overflow-y-auto p-3">
           <div className="space-y-2">
@@ -91,9 +91,12 @@ const Start = () => {
         </div>
 
         <div className="p-4 border-t border-gray-200">
-          <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-            <Settings size={20} />
-            <span>Settings</span>
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+          >
+            <Home size={20} />
+            <span>Home</span>
           </button>
         </div>
       </aside>
