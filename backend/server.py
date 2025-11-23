@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS                 #when flask and react server run on different ports
+from flask_cors import CORS               
 import os 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -8,8 +8,41 @@ import uuid
 from datetime import date
 from collections import deque               
 import numpy as np
-from pprint import pprint                  #for pretty printing
+from pprint import pprint                 
 import time
+
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+
+## Mood Predictor Model
+model_path = "./mood_prediction_model" 
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSequenceClassification.from_pretrained(model_path)
+
+label_map = {
+    0: "anger",
+    1: "disgust",
+    2: "fear",
+    3: "joy",
+    4: "neutral",
+    5: "sadness",
+    6: "shame",
+    7: "surprise"
+}
+
+
+def predict_mood(text):
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+    
+    # Get prediction
+    with torch.no_grad():
+        outputs = model(**inputs)
+        predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+        predicted_class = torch.argmax(predictions, dim=-1).item()
+        confidence = predictions[0][predicted_class].item()
+    
+    predicted_mood = label_map[predicted_class]
+    return predicted_mood, confidence
 
 
 def get_turn_id(cur_namespace):
