@@ -279,6 +279,11 @@ def submit_message():
     
     return jsonify({"reply": reply})
 
+@app.route('/submit_voice_message', methods = ['POST'])
+def submit_voice_message():
+    if "audio" not in request.files:
+        return jsonify({"error" : "No audio file"}, 400)
+    audio_file = request.files["audio"]
 
 @app.route('/get_messages', methods=['POST'])
 def get_messages():
