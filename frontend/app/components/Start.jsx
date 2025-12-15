@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Menu, MessageSquare, Plus, Home, Mic, Play, Pause, X } from "lucide-react";
 
-const user_id = 123 //TEMPORARY SINGLE USER 
+const user_id = 123; //TEMPORARY SINGLE USER 
+const API_BASE_URL = 'http://127.0.0.1:5000';
 
 const Start = () => {
   const [messages, setMessages] = useState([]);
@@ -20,32 +21,45 @@ const Start = () => {
   const timerRef = useRef(null);
   const audioRefs = useRef({});
 
-  useEffect(()=>{
-    const loadMessages = async () =>{
+  useEffect(() => {
+    const loadMessages = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch('http://127.0.0.1:5000/get_messages',{
-          method : "POST",
-          headers : {"Content-Type":"application/json"},
-          body:JSON.stringify({
-            user_id:user_id
+        const response = await fetch(`${API_BASE_URL}/get_messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: user_id
           })
-        })
+        });
     
-        const data = await response.json()
+        const data = await response.json();
+        
+        // Process messages and add audio URLs for voice messages
+        const processedMessages = data.messages.map(msg => {
+          if (msg.type === "voice" && msg.audio_filename) {
+            return {
+              ...msg,
+              audioUrl: `${API_BASE_URL}/audio/${msg.audio_filename}`,
+              duration: Math.round(msg.audio_duration || 0)
+            };
+          }
+          return msg;
+        });
+        
         setMessages([
-          { sender: "lenni", text: "Hi, I'm Lenni. What's on your mind today?" },
-          ...data.messages
-        ])
+          { sender: "lenni", text: "Hi, I'm Lenni. What's on your mind today?", type: "text" },
+          ...processedMessages
+        ]);
       } catch (error) {
         console.error("Error loading messages:", error);
       } finally {
         setIsLoading(false);
       }
-    }
+    };
 
-    loadMessages()
-  },[])
+    loadMessages();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -121,15 +135,28 @@ const Start = () => {
       formData.append('audio', audioBlob, 'voice_message.webm');
       formData.append('user_id', user_id);
 
-      const response = await fetch('http://127.0.0.1:5000/submit_voice_message', {
+      const response = await fetch(`${API_BASE_URL}/submit_voice_message`, {
         method: "POST",
         body: formData
       });
 
       const data = await response.json();
+      
+      // Update the user message with the server audio URL
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastUserMsg = updated[updated.length - 1];
+        if (lastUserMsg.sender === "user" && lastUserMsg.type === "voice") {
+          lastUserMsg.audioUrl = `${API_BASE_URL}/audio/${data.audio_filename}`;
+          lastUserMsg.duration = Math.round(data.duration);
+        }
+        return updated;
+      });
+      
       const botReply = {
         sender: "lenni",
-        text: data.reply
+        text: data.reply,
+        type: "text"
       };
       setMessages(prev => [...prev, botReply]);
     } catch (error) {
@@ -172,25 +199,26 @@ const Start = () => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage = { sender: "user", text: input };
+    const userMessage = { sender: "user", text: input, type: "text" };
     setMessages([...messages, userMessage]);
     setInput("");
     setIsLoading(true);
     
     try {
-      const response = await fetch('http://127.0.0.1:5000/submit_message',{
-        method : "POST",
-        headers : {"Content-Type":"application/json"},
-        body:JSON.stringify({
-          user_id:user_id,
-          message:input
+      const response = await fetch(`${API_BASE_URL}/submit_message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user_id,
+          message: input
         })
-      })
-      const data = await response.json()
+      });
+      const data = await response.json();
       const botReply = {
         sender: "lenni",
-        text: data.reply
-      }
+        text: data.reply,
+        type: "text"
+      };
       setMessages(prev => [...prev, botReply]);
     } catch (error) {
       console.error("Error sending message:", error);
@@ -260,14 +288,14 @@ const Start = () => {
                 {msg.type === "voice" ? (
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => togglePlayPause(msg.id, msg.audioUrl)}
+                      onClick={() => togglePlayPause(msg.id || idx, msg.audioUrl)}
                       className={`rounded-full p-2 transition ${
                         msg.sender === "user"
                           ? "bg-white text-indigo-500 hover:bg-indigo-50"
                           : "bg-indigo-500 text-white hover:bg-indigo-600"
                       }`}
                     >
-                      {playingId === msg.id ? (
+                      {playingId === (msg.id || idx) ? (
                         <Pause size={20} />
                       ) : (
                         <Play size={20} />
@@ -281,7 +309,7 @@ const Start = () => {
                     <span className={`text-sm ${
                       msg.sender === "user" ? "text-indigo-100" : "text-gray-600"
                     }`}>
-                      {formatTime(msg.duration)}
+                      {formatTime(msg.duration || 0)}
                     </span>
                   </div>
                 ) : (
