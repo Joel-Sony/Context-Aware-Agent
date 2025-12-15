@@ -5,14 +5,66 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pinecone import Pinecone
 import uuid
+import subprocess
 from datetime import date
 from collections import deque
 import numpy as np
 import time
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
+import librosa
+import numpy as np
+from collections import defaultdict
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from pydub import AudioSegment
+from transformers import (
+    Wav2Vec2FeatureExtractor,
+    Wav2Vec2ForSequenceClassification
+)
+from faster_whisper import WhisperModel
+
+# ============= FLASK APP =============
+app = Flask(__name__)
+CORS(app)
+
 
 # ============= CONFIGURATION =============
+
+UPLOAD_FOLDER = 'temp_audio'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# -----------------------------
+# Model setup (load once at startup)
+# -----------------------------
+print("Loading Whisper model...")
+whisper_model = WhisperModel(
+    "tiny",
+    device="cpu",
+    compute_type="int8"
+)
+
+print("Loading emotion recognition model...")
+EMOTION_MODEL_NAME = "r-f/wav2vec-english-speech-emotion-recognition"
+feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(EMOTION_MODEL_NAME)
+emotion_model = Wav2Vec2ForSequenceClassification.from_pretrained(EMOTION_MODEL_NAME)
+emotion_model.eval()
+
+LABEL_MAP = {
+    "angry": "Angry",
+    "disgust": "Disgust",
+    "fear": "Fear",
+    "happy": "Happy",
+    "neutral": "Neutral",
+    "sad": "Sad",
+    "surprise": "Surprise"
+}
+
+print("Models loaded successfully!")
+
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -211,19 +263,97 @@ def wait_for_vector(vector_id, namespace, max_retries=10):
     
     raise RuntimeError("Vector not available after retries")
 
+def convert_webm_to_wav(webm_path, wav_path):
+    """Convert WebM audio to WAV format."""
+    try:
+        audio = AudioSegment.from_file(webm_path, format="webm")
+        audio = audio.set_channels(1)  # mono
+        audio = audio.set_frame_rate(16000)  # 16kHz
+        audio.export(wav_path, format="wav")
+        return True
+    except Exception as e:
+        print(f"Error converting audio: {e}")
+        return False
 
-# ============= FLASK APP =============
-app = Flask(__name__)
-CORS(app)
 
-
-@app.route("/submit_message", methods=["POST"])
-def submit_message():
-    """Handles user message submission and generates AI response."""
+def transcribe_audio(wav_path):
+    """Transcribe audio using Whisper."""
+    segments, info = whisper_model.transcribe(wav_path)
     
-    data = request.get_json()
-    user_id = str(data.get("user_id"))
-    message = data.get("message")
+    full_text = ""
+    for segment in segments:
+        full_text += segment.text + " "
+    
+    return full_text.strip(), info.language
+
+
+def predict_emotion_from_audio(audio_np, sr=16000):
+    """Predict emotion from audio numpy array."""
+    inputs = feature_extractor(
+        audio_np,
+        sampling_rate=sr,
+        return_tensors="pt",
+        padding=True
+    )
+
+    with torch.no_grad():
+        logits = emotion_model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)
+
+    pred_id = torch.argmax(probs, dim=-1).item()
+    raw_label = emotion_model.config.id2label[pred_id]
+    confidence = probs[0, pred_id].item()
+
+    return LABEL_MAP[raw_label], confidence
+
+
+def analyze_audio_emotions(wav_path, chunk_duration=3.0, sr=16000):
+    """Analyze emotions in audio by chunking."""
+    audio, _ = librosa.load(wav_path, sr=sr)
+
+    chunk_size = int(chunk_duration * sr)
+    num_chunks = int(np.ceil(len(audio) / chunk_size))
+
+    chunk_results = []
+    emotion_scores = defaultdict(float)
+
+    for i in range(num_chunks):
+        start = i * chunk_size
+        end = min((i + 1) * chunk_size, len(audio))
+        chunk_audio = audio[start:end]
+
+        # Skip very short chunks
+        if len(chunk_audio) < sr * 0.5:
+            continue
+
+        emotion, confidence = predict_emotion_from_audio(chunk_audio, sr)
+
+        chunk_results.append({
+            "chunk_index": i,
+            "start_time": round(start / sr, 2),
+            "end_time": round(end / sr, 2),
+            "emotion": emotion,
+            "confidence": round(confidence, 3)
+        })
+
+        emotion_scores[emotion] += confidence
+
+    # Get dominant emotion
+    if emotion_scores:
+        dominant_emotion = max(emotion_scores.items(), key=lambda x: x[1])[0]
+    else:
+        dominant_emotion = "Neutral"
+
+    return chunk_results, dominant_emotion
+
+
+def process_message_logic(user_id, message):
+    """
+    Core chatbot logic - processes message and returns reply.
+    """
+    from datetime import date
+    import uuid
+    from openai import OpenAI
     
     # Get conversation metadata
     turn_id = get_turn_id(user_id)
@@ -277,13 +407,78 @@ def submit_message():
         }]
     )
     
+    return reply
+
+@app.route("/submit_message", methods=["POST"])
+def submit_message():
+    """Handles user message submission and generates AI response."""
+    data = request.get_json()
+    user_id = str(data.get("user_id"))
+    message = data.get("message")
+    
+    reply = process_message_logic(user_id, message)
+    
     return jsonify({"reply": reply})
 
-@app.route('/submit_voice_message', methods = ['POST'])
+
+@app.route('/submit_voice_message', methods=['POST'])
 def submit_voice_message():
-    if "audio" not in request.files:
-        return jsonify({"error" : "No audio file"}, 400)
-    audio_file = request.files["audio"]
+    try:
+        # Check if audio file is present
+        if 'audio' not in request.files:
+            return jsonify({'error': 'No audio file provided'}), 400
+        
+        audio_file = request.files['audio']
+        user_id = request.form.get('user_id')
+        
+        if audio_file.filename == '':
+            return jsonify({'error': 'Empty filename'}), 400
+        
+        # Save the WebM file
+        filename = secure_filename(f"user_{user_id}_{audio_file.filename}")
+        webm_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        audio_file.save(webm_path)
+        
+        # Convert to WAV
+        wav_filename = filename.rsplit('.', 1)[0] + '.wav'
+        wav_path = os.path.join(app.config['UPLOAD_FOLDER'], wav_filename)
+        
+        if not convert_webm_to_wav(webm_path, wav_path):
+            return jsonify({'error': 'Failed to convert audio format'}), 500
+        
+        # Transcribe audio
+        transcribed_text, language = transcribe_audio(wav_path)
+        
+        # Analyze emotions
+        emotion_chunks, dominant_emotion = analyze_audio_emotions(wav_path)
+        
+        # Clean up temporary files
+        try:
+            os.remove(webm_path)
+            os.remove(wav_path)
+        except:
+            pass
+        
+        # Process the transcribed text using the same chatbot logic
+        message_with_emotion = f"[Emotion: {dominant_emotion}] {transcribed_text}"
+        
+        # Call the core chatbot logic (same as text messages)
+        reply = process_message_logic(user_id, message_with_emotion)
+        
+        # Return response with additional voice metadata
+        return jsonify({
+            'reply': reply,
+            'transcription': transcribed_text,
+            'language': language,
+            'dominant_emotion': dominant_emotion,
+            'emotion_timeline': emotion_chunks
+        })
+    
+    except Exception as e:
+        print(f"Error processing voice message: {e}")
+        return jsonify({'error': str(e)}), 500
+
+    
 
 @app.route('/get_messages', methods=['POST'])
 def get_messages():
