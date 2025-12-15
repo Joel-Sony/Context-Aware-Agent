@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
@@ -7,21 +7,18 @@ from pinecone import Pinecone
 import uuid
 import subprocess
 from datetime import date
-from collections import deque
+from collections import deque, defaultdict
 import numpy as np
 import time
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import librosa
-import numpy as np
-from collections import defaultdict
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from pydub import AudioSegment
 from transformers import (
     Wav2Vec2FeatureExtractor,
-    Wav2Vec2ForSequenceClassification
+    Wav2Vec2ForSequenceClassification,
+    AutoTokenizer, 
+    AutoModelForSequenceClassification
 )
 from faster_whisper import WhisperModel
 
@@ -33,8 +30,11 @@ CORS(app)
 # ============= CONFIGURATION =============
 
 UPLOAD_FOLDER = 'temp_audio'
+AUDIO_STORAGE = 'stored_audio'  # Permanent storage for audio files
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(AUDIO_STORAGE, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['AUDIO_STORAGE'] = AUDIO_STORAGE
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # -----------------------------
@@ -347,30 +347,36 @@ def analyze_audio_emotions(wav_path, chunk_duration=3.0, sr=16000):
     return chunk_results, dominant_emotion
 
 
-def process_message_logic(user_id, message):
+def process_message_logic(user_id, message, audio_filename=None, audio_duration=None):
     """
     Core chatbot logic - processes message and returns reply.
     """
-    from datetime import date
-    import uuid
-    from openai import OpenAI
+
     
     # Get conversation metadata
     turn_id = get_turn_id(user_id)
     today = str(date.today())
     user_message_id = str(uuid.uuid4())
     
+    # Prepare metadata for user message
+    metadata = {
+        "id": user_message_id,
+        "text": message,
+        "date": today,
+        "turn_id": turn_id,
+        "role": "user"
+    }
+    
+    # Add audio metadata if it's a voice message
+    if audio_filename:
+        metadata["audio_filename"] = audio_filename
+        metadata["audio_duration"] = audio_duration
+        metadata["message_type"] = "voice"
+    else:
+        metadata["message_type"] = "text"
+    
     # Store user message in Pinecone
-    index.upsert_records(
-        user_id,
-        [{
-            "id": user_message_id,
-            "text": message,
-            "date": today,
-            "turn_id": turn_id,
-            "role": "user"
-        }]
-    )
+    index.upsert_records(user_id, [metadata])
     
     # Wait for vector to be available and retrieve it
     user_vector = np.array(wait_for_vector(user_message_id, user_id))
@@ -403,7 +409,8 @@ def process_message_logic(user_id, message):
             "text": reply,
             "date": today,
             "turn_id": turn_id,
-            "role": "assistant"
+            "role": "assistant",
+            "message_type": "text"
         }]
     )
     
@@ -434,8 +441,11 @@ def submit_voice_message():
         if audio_file.filename == '':
             return jsonify({'error': 'Empty filename'}), 400
         
-        # Save the WebM file
-        filename = secure_filename(f"user_{user_id}_{audio_file.filename}")
+        # Get turn_id before processing
+        turn_id = get_turn_id(user_id)
+        
+        # Save the WebM file temporarily
+        filename = secure_filename(f"temp_{user_id}_{audio_file.filename}")
         webm_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         audio_file.save(webm_path)
         
@@ -446,11 +456,23 @@ def submit_voice_message():
         if not convert_webm_to_wav(webm_path, wav_path):
             return jsonify({'error': 'Failed to convert audio format'}), 500
         
+        # Get audio duration
+        audio_data = AudioSegment.from_wav(wav_path)
+        duration_seconds = len(audio_data) / 1000.0  # Convert ms to seconds
+        
         # Transcribe audio
         transcribed_text, language = transcribe_audio(wav_path)
         
         # Analyze emotions
         emotion_chunks, dominant_emotion = analyze_audio_emotions(wav_path)
+        
+        # Create permanent audio filename with turn_id
+        permanent_audio_filename = f"user_{user_id}_turn_{turn_id}.webm"
+        permanent_audio_path = os.path.join(app.config['AUDIO_STORAGE'], permanent_audio_filename)
+        
+        # Copy original webm to permanent storage
+        import shutil
+        shutil.copy2(webm_path, permanent_audio_path)
         
         # Clean up temporary files
         try:
@@ -462,8 +484,13 @@ def submit_voice_message():
         # Process the transcribed text using the same chatbot logic
         message_with_emotion = f"[Emotion: {dominant_emotion}] {transcribed_text}"
         
-        # Call the core chatbot logic (same as text messages)
-        reply = process_message_logic(user_id, message_with_emotion)
+        # Call the core chatbot logic with audio metadata
+        reply = process_message_logic(
+            user_id, 
+            message_with_emotion,
+            audio_filename=permanent_audio_filename,
+            audio_duration=duration_seconds
+        )
         
         # Return response with additional voice metadata
         return jsonify({
@@ -471,14 +498,21 @@ def submit_voice_message():
             'transcription': transcribed_text,
             'language': language,
             'dominant_emotion': dominant_emotion,
-            'emotion_timeline': emotion_chunks
+            'emotion_timeline': emotion_chunks,
+            'audio_filename': permanent_audio_filename,
+            'duration': duration_seconds
         })
     
     except Exception as e:
         print(f"Error processing voice message: {e}")
         return jsonify({'error': str(e)}), 500
 
-    
+
+@app.route('/audio/<filename>')
+def serve_audio(filename):
+    """Serve stored audio files."""
+    return send_from_directory(app.config['AUDIO_STORAGE'], filename)
+
 
 @app.route('/get_messages', methods=['POST'])
 def get_messages():
@@ -501,20 +535,38 @@ def get_messages():
             for record_id in records.vectors:
                 vector = records.vectors.get(record_id)
                 if vector:
-                    all_messages.append({
+                    message_data = {
                         "sender": vector["metadata"]["role"],
                         "text": vector["metadata"]["text"],
-                        "turn_id": vector["metadata"]["turn_id"]
-                    })
+                        "turn_id": vector["metadata"]["turn_id"],
+                        "message_type": vector["metadata"].get("message_type", "text")
+                    }
+                    
+                    # Add audio metadata if it's a voice message
+                    if message_data["message_type"] == "voice":
+                        message_data["audio_filename"] = vector["metadata"].get("audio_filename")
+                        message_data["audio_duration"] = vector["metadata"].get("audio_duration")
+                    
+                    all_messages.append(message_data)
     
     # Sort by turn_id and role (user messages first)
     all_messages.sort(key=lambda m: (m["turn_id"], 0 if m["sender"] == "user" else 1))
     
-    # Remove turn_id from response
-    formatted_messages = [
-        {"sender": m["sender"], "text": m["text"]} 
-        for m in all_messages
-    ]
+    # Format messages for frontend
+    formatted_messages = []
+    for m in all_messages:
+        msg = {
+            "sender": m["sender"],
+            "text": m["text"],
+            "type": m["message_type"]
+        }
+        
+        # Add audio info if voice message
+        if m["message_type"] == "voice":
+            msg["audio_filename"] = m.get("audio_filename")
+            msg["audio_duration"] = m.get("audio_duration")
+        
+        formatted_messages.append(msg)
     
     return jsonify({"messages": formatted_messages})
 
