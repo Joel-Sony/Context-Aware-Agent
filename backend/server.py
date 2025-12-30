@@ -128,6 +128,19 @@ STM = ShortTermMemory(size=30)
 
 
 # ============= HELPER FUNCTIONS =============
+def count_recent_followups():
+    """
+    Counts how many consecutive assistant messages were follow-up questions.
+    """
+    count = 0
+    for msg in reversed(STM.get_all()):
+        if msg["role"] == "assistant" and msg["text"].endswith("?"):
+            count += 1
+        else:
+            break
+    return count
+
+
 def predict_mood(text):
     """Predicts user's mood from text."""
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
@@ -160,6 +173,13 @@ def should_query_database(query_embedding, threshold=0.7):
     trigger_norm = triggerEmbeddings / np.linalg.norm(triggerEmbeddings, axis=1, keepdims=True)
     similarities = trigger_norm @ query_norm
     return np.any(similarities >= threshold)
+
+def get_recent_assistant_questions():
+    return [
+        msg["text"].lower()
+        for msg in STM.get_all()
+        if msg["role"] == "assistant" and msg["text"].endswith("?")
+    ]
 
 
 def build_context(user_query, query_embedding, namespace):
@@ -228,51 +248,7 @@ def build_prompt(user_query, query_embedding, namespace):
     """Builds the final prompt for the LLM."""
     
     # Get conversation context
-    context_messages = build_context(user_query, query_embedding, ndef triage_agent_decision(user_text):
-    """
-    Decides what action to take before responding.
-    """
-
-    system_prompt = """
-You are a medical triage decision agent.
-Your job is to decide the NEXT ACTION.
-
-Allowed actions:
-- ASK_FOLLOWUP: if information is insufficient
-- RETRIEVE_GUIDELINE: if known medical guidance is needed
-- ESCALATE: if symptoms may indicate a medical emergency
-
-Rules:
-- Do NOT give medical advice
-- Do NOT diagnose
-- Choose exactly ONE action
-- Respond ONLY in valid JSON
-
-Example response:
-{
-  "action": "ASK_FOLLOWUP",
-  "reason": "Chest pain requires duration and severity"
-}
-"""
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY
-    )
-
-    completion = client.chat.completions.create(
-        model="google/gemma-3n-e2b-it:free",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text}
-        ],
-        temperature=0
-    )
-
-    import json
-    return json.loads(completion.choices[0].message.content)amespace)
-    
-    # Predict user's mood
+    context_messages = build_context(user_query, query_embedding, namespace)
     mood, confidence = predict_mood(user_query)
     
     # Format context as conversation
@@ -388,89 +364,170 @@ def analyze_audio_emotions(wav_path, chunk_duration=3.0, sr=16000):
 
     return chunk_results, dominant_emotion
 
-
 def process_message_logic(user_id, message, audio_filename=None, audio_duration=None):
     """
     Core chatbot logic - processes message and returns reply.
     """
 
-    
-    # Get conversation metadata
+    # ---- Setup ----
     turn_id = get_turn_id(user_id)
     today = str(date.today())
     user_message_id = str(uuid.uuid4())
-    
-    # Prepare metadata for user message
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY
+    )
+
+    # ---- Store USER message ----
     metadata = {
         "id": user_message_id,
         "text": message,
         "date": today,
         "turn_id": turn_id,
-        "role": "user"
+        "role": "user",
+        "message_type": "voice" if audio_filename else "text"
     }
-    
-    # Add audio metadata if it's a voice message
+
     if audio_filename:
         metadata["audio_filename"] = audio_filename
         metadata["audio_duration"] = audio_duration
-        metadata["message_type"] = "voice"
-    else:
-        metadata["message_type"] = "text"
-    
-    # Store user message in Pinecone
+
     index.upsert_records(user_id, [metadata])
-    
-    # Wait for vector to be available and retrieve it
+
     user_vector = np.array(wait_for_vector(user_message_id, user_id))
-    
-    # Add to short-term memory
     STM.add(turn_id, "user", message, user_vector)
-    
+
+    # ---- Agent decision ----
     decision = triage_agent_decision(message)
+
+    # ---- Prevent duplicate follow-ups ----
+    if decision["action"] == "ASK_FOLLOWUP":
+        asked_questions = get_recent_assistant_questions()
+        proposed_q = decision.get("question", "").lower()
+
+        if any(proposed_q[:25] in q for q in asked_questions):
+            decision = {
+                "action": "RETRIEVE_GUIDELINE",
+                "reason": "Follow-up question already asked and answered"
+            }
+
+    # ---- Pattern-based guideline override (non-emergency only) ----
+    GUIDELINE_PATTERNS = [
+        ["fever", "rash"],
+        ["cough", "fever"],
+        ["cold", "fever"],
+        ["lightheaded", "fever"],
+        ["depressed", "nausea"],
+        ["sad", "nausea"]
+    ]
+
+    text = message.lower()
+    if decision["action"] != "ESCALATE":
+        if any(all(p in text for p in pattern) for pattern in GUIDELINE_PATTERNS):
+            decision = {
+                "action": "RETRIEVE_GUIDELINE",
+                "reason": "Recognized common non-emergency symptom pattern"
+            }
+
+    # ---- Hard stop after 2 follow-ups ----
+    if count_recent_followups() >= 2 and decision["action"] == "ASK_FOLLOWUP":
+        decision = {
+            "action": "RETRIEVE_GUIDELINE",
+            "reason": "Sufficient information gathered from follow-ups"
+        }
+
     action = decision["action"]
-    reason = decision["reason"]
+
+    # ---- ASK FOLLOW-UP ----
     if action == "ASK_FOLLOWUP":
-        return f"I want to understand better before responding. {reason}. Could you tell me a bit more?"
+        question = decision.get(
+            "question",
+            "Could you tell me a bit more about what you're experiencing?"
+        )
+
+        # STORE assistant question 
+        assistant_id = str(uuid.uuid4())
+        index.upsert_records(
+            user_id,
+            [{
+                "id": assistant_id,
+                "text": question,
+                "date": today,
+                "turn_id": turn_id,
+                "role": "assistant",
+                "message_type": "text"
+            }]
+        )
+
+        STM.add(turn_id, "assistant", question, user_vector)
+        return question
+
+    # ---- ESCALATE ----
     if action == "ESCALATE":
-        return (
+        reply = (
             "Based on what you've shared, this could be serious. "
             "Please seek immediate medical attention or contact emergency services."
         )
+
+        STM.add(turn_id, "assistant", reply, user_vector)
+        return reply
+
+    # ---- RETRIEVE GUIDELINE ----
     if action == "RETRIEVE_GUIDELINE":
         guideline = retrieve_guideline(user_vector)
-        message = f"{message}\n\nRelevant medical guidance:\n{guideline}"
 
+        guideline_prompt = f"""
+You are responding using the following medical safety guidance.
 
-    # Build prompt with context
+STRICT RULES:
+- Do NOT ask further diagnostic questions
+- Do NOT escalate unless symptoms clearly worsen
+- Provide calm, general guidance
+- Explain when medical care is needed
+
+Medical guidance:
+{guideline}
+
+User message:
+{message}
+
+Respond clearly and reassuringly.
+"""
+
+        completion = client.chat.completions.create(
+            model="google/gemma-3n-e2b-it:free",
+            messages=[{"role": "assistant", "content": guideline_prompt}]
+        )
+
+        reply = completion.choices[0].message.content
+
+        assistant_id = str(uuid.uuid4())
+        index.upsert_records(
+            user_id,
+            [{
+                "id": assistant_id,
+                "text": reply,
+                "date": today,
+                "turn_id": turn_id,
+                "role": "assistant",
+                "message_type": "text"
+            }]
+        )
+
+        STM.add(turn_id, "assistant", reply, user_vector)
+        return reply
+
+    # ---- Default Lenni response ----
     prompt = build_prompt(message, user_vector, user_id)
-    
-    # Generate AI response
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY
-    )
-    
+
     completion = client.chat.completions.create(
         model="google/gemma-3n-e2b-it:free",
         messages=[{"role": "assistant", "content": prompt}]
     )
-    
+
     reply = completion.choices[0].message.content
-    
-    # Store assistant response in Pinecone
-    assistant_message_id = str(uuid.uuid4())
-    index.upsert_records(
-        user_id,
-        [{
-            "id": assistant_message_id,
-            "text": reply,
-            "date": today,
-            "turn_id": turn_id,
-            "role": "assistant",
-            "message_type": "text"
-        }]
-    )
-    
+    STM.add(turn_id, "assistant", reply, user_vector)
     return reply
 
 def triage_agent_decision(user_text):
@@ -483,21 +540,18 @@ You are a medical triage decision agent.
 Your job is to decide the NEXT ACTION.
 
 Allowed actions:
-- ASK_FOLLOWUP: if information is insufficient
-- RETRIEVE_GUIDELINE: if known medical guidance is needed
-- ESCALATE: if symptoms may indicate a medical emergency
+- ASK_FOLLOWUP
+- RETRIEVE_GUIDELINE
+- ESCALATE
 
 Rules:
 - Do NOT give medical advice
 - Do NOT diagnose
 - Choose exactly ONE action
 - Respond ONLY in valid JSON
+- If action is ASK_FOLLOWUP, include ONE clear question
 
-Example response:
-{
-  "action": "ASK_FOLLOWUP",
-  "reason": "Chest pain requires duration and severity"
-}
+Escalate ONLY for TRUE medical emergencies.
 """
 
     client = OpenAI(
@@ -508,14 +562,99 @@ Example response:
     completion = client.chat.completions.create(
         model="google/gemma-3n-e2b-it:free",
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text}
+            {
+                "role": "user",
+                "content": f"{system_prompt}\n\nUser message:\n{user_text}"
+            }
         ],
         temperature=0
     )
 
     import json
-    return json.loads(completion.choices[0].message.content)
+
+    raw = completion.choices[0].message.content.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+
+    try:
+        decision = json.loads(raw)
+    except Exception:
+        return {
+            "action": "ASK_FOLLOWUP",
+            "reason": "Unable to interpret symptoms safely",
+            "question": "Could you tell me a bit more about what you're experiencing?"
+        }
+
+    # ---- Normalize action ----
+    if decision.get("action") not in {"ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"}:
+        return {
+            "action": "ASK_FOLLOWUP",
+            "reason": "Invalid action from agent",
+            "question": "Could you clarify your symptoms a bit more?"
+        }
+
+    text = user_text.lower()
+
+    # ---- Hard safety guard for escalation ----
+    RED_FLAG_KEYWORDS = [
+        "chest pain",
+        "can't breathe",
+        "cannot breathe",
+        "shortness of breath",
+        "passed out",
+        "unconscious",
+        "fainted",
+        "seizure",
+        "confusion",
+        "slurred speech",
+        "paralyzed",
+        "kill myself",
+        "suicide"
+    ]
+
+    if decision["action"] == "ESCALATE":
+        if not any(k in text for k in RED_FLAG_KEYWORDS):
+            return {
+                "action": "RETRIEVE_GUIDELINE",
+                "reason": "No clear emergency red flags detected"
+            }
+
+    # ---- Mental health handling (allow ONE follow-up) ----
+    MENTAL_HEALTH_TRIGGERS = [
+        "depressed",
+        "sad",
+        "hopeless",
+        "disinterest",
+        "lost interest",
+        "numb",
+        "empty"
+    ]
+
+    if any(m in text for m in MENTAL_HEALTH_TRIGGERS):
+        if decision["action"] == "ASK_FOLLOWUP":
+            return decision  # allow one clarifying question
+        return {
+            "action": "RETRIEVE_GUIDELINE",
+            "reason": "Mental health symptoms identified"
+        }
+
+    # ---- Common physical symptom patterns ----
+    COMMON_PATTERNS = [
+        ["cough", "fever"],
+        ["cold", "fever"],
+        ["flu", "fever"],
+        ["fever", "rash"],
+        ["lightheaded", "fever"]
+    ]
+
+    if any(all(p in text for p in pattern) for pattern in COMMON_PATTERNS):
+        return {
+            "action": "RETRIEVE_GUIDELINE",
+            "reason": "Recognized common non-emergency symptom pattern"
+        }
+
+    # ---- Default: trust agent ----
+    return decision
+
 
 
 @app.route("/submit_message", methods=["POST"])
@@ -685,5 +824,5 @@ def get_messages():
     return jsonify({"messages": formatted_messages})
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  
     app.run(debug=True)
