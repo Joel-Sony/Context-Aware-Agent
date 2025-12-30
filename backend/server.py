@@ -228,7 +228,49 @@ def build_prompt(user_query, query_embedding, namespace):
     """Builds the final prompt for the LLM."""
     
     # Get conversation context
-    context_messages = build_context(user_query, query_embedding, namespace)
+    context_messages = build_context(user_query, query_embedding, ndef triage_agent_decision(user_text):
+    """
+    Decides what action to take before responding.
+    """
+
+    system_prompt = """
+You are a medical triage decision agent.
+Your job is to decide the NEXT ACTION.
+
+Allowed actions:
+- ASK_FOLLOWUP: if information is insufficient
+- RETRIEVE_GUIDELINE: if known medical guidance is needed
+- ESCALATE: if symptoms may indicate a medical emergency
+
+Rules:
+- Do NOT give medical advice
+- Do NOT diagnose
+- Choose exactly ONE action
+- Respond ONLY in valid JSON
+
+Example response:
+{
+  "action": "ASK_FOLLOWUP",
+  "reason": "Chest pain requires duration and severity"
+}
+"""
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY
+    )
+
+    completion = client.chat.completions.create(
+        model="google/gemma-3n-e2b-it:free",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
+        ],
+        temperature=0
+    )
+
+    import json
+    return json.loads(completion.choices[0].message.content)amespace)
     
     # Predict user's mood
     mood, confidence = predict_mood(user_query)
@@ -384,6 +426,21 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
     # Add to short-term memory
     STM.add(turn_id, "user", message, user_vector)
     
+    decision = triage_agent_decision(message)
+    action = decision["action"]
+    reason = decision["reason"]
+    if action == "ASK_FOLLOWUP":
+        return f"I want to understand better before responding. {reason}. Could you tell me a bit more?"
+    if action == "ESCALATE":
+        return (
+            "Based on what you've shared, this could be serious. "
+            "Please seek immediate medical attention or contact emergency services."
+        )
+    if action == "RETRIEVE_GUIDELINE":
+        guideline = retrieve_guideline(user_vector)
+        message = f"{message}\n\nRelevant medical guidance:\n{guideline}"
+
+
     # Build prompt with context
     prompt = build_prompt(message, user_vector, user_id)
     
@@ -416,6 +473,51 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
     
     return reply
 
+def triage_agent_decision(user_text):
+    """
+    Decides what action to take before responding.
+    """
+
+    system_prompt = """
+You are a medical triage decision agent.
+Your job is to decide the NEXT ACTION.
+
+Allowed actions:
+- ASK_FOLLOWUP: if information is insufficient
+- RETRIEVE_GUIDELINE: if known medical guidance is needed
+- ESCALATE: if symptoms may indicate a medical emergency
+
+Rules:
+- Do NOT give medical advice
+- Do NOT diagnose
+- Choose exactly ONE action
+- Respond ONLY in valid JSON
+
+Example response:
+{
+  "action": "ASK_FOLLOWUP",
+  "reason": "Chest pain requires duration and severity"
+}
+"""
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY
+    )
+
+    completion = client.chat.completions.create(
+        model="google/gemma-3n-e2b-it:free",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
+        ],
+        temperature=0
+    )
+
+    import json
+    return json.loads(completion.choices[0].message.content)
+
+
 @app.route("/submit_message", methods=["POST"])
 def submit_message():
     """Handles user message submission and generates AI response."""
@@ -426,6 +528,18 @@ def submit_message():
     reply = process_message_logic(user_id, message)
     
     return jsonify({"reply": reply})
+
+def retrieve_guideline(query_embedding, top_k=1):
+    result = index.query(
+        namespace="medical_guidelines",
+        vector=query_embedding.tolist(),
+        top_k=top_k,
+        include_metadata=True
+    )
+
+    if result.matches:
+        return result.matches[0].metadata["text"]
+    return None
 
 
 @app.route('/submit_voice_message', methods=['POST'])

@@ -1,18 +1,110 @@
 from pinecone import Pinecone
-import os 
+import os
 from dotenv import load_dotenv
-import numpy as np
 
 load_dotenv()
 
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index(host=os.getenv("PINECONE_INDEX_HOST"))
 
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+index.upsert_records(
+    namespace="medical_guidelines",
+    records=[
+        {
+            "_id": "chest_pain_emergency",
+            "text": "Chest pain combined with symptoms such as dizziness, shortness of breath, sweating, nausea, or pain spreading to the arm, back, neck, or jaw may indicate a serious medical emergency and requires immediate medical attention.",
+            "risk": "high",
+            "category": "cardiac"
+        },
+        {
+            "_id": "breathing_difficulty_emergency",
+            "text": "Difficulty breathing, persistent shortness of breath, wheezing, or a sensation of not getting enough air can be life-threatening and should be evaluated urgently by medical professionals.",
+            "risk": "high",
+            "category": "respiratory"
+        },
+        {
+            "_id": "severe_headache_emergency",
+            "text": "A sudden and severe headache, especially one described as the worst headache ever or accompanied by confusion, vision problems, weakness, or difficulty speaking, may require immediate medical evaluation.",
+            "risk": "high",
+            "category": "neurological"
+        },
+        {
+            "_id": "loss_of_consciousness",
+            "text": "Fainting, sudden loss of consciousness, seizures, or unresponsiveness can be signs of a serious underlying condition and warrant urgent medical assessment.",
+            "risk": "high",
+            "category": "neurological"
+        },
+        {
+            "_id": "stroke_warning_signs",
+            "text": "Sudden weakness on one side of the body, facial drooping, slurred speech, confusion, or difficulty understanding speech may indicate a stroke and requires immediate emergency care.",
+            "risk": "high",
+            "category": "stroke"
+        },
+        {
+            "_id": "self_harm_risk",
+            "text": "Thoughts of self-harm, feeling unsafe, or expressing a desire to harm oneself require immediate support. Contacting emergency services or reaching out to a trusted person is strongly advised.",
+            "risk": "high",
+            "category": "mental_health"
+        },
+        {
+            "_id": "persistent_fever",
+            "text": "A fever lasting more than three days, or a fever accompanied by rash, confusion, severe pain, dehydration, or difficulty breathing, should be evaluated by a healthcare professional.",
+            "risk": "medium",
+            "category": "infection"
+        },
+        {
+            "_id": "abdominal_pain",
+            "text": "Severe, worsening, or persistent abdominal pain, especially when associated with vomiting, fever, swelling, or blood in stool, may require medical evaluation.",
+            "risk": "medium",
+            "category": "gastrointestinal"
+        },
+        {
+            "_id": "vomiting_blood",
+            "text": "Vomiting blood or passing black, tarry stools can indicate internal bleeding and should be evaluated urgently by medical professionals.",
+            "risk": "high",
+            "category": "bleeding"
+        },
+        {
+            "_id": "uncontrolled_bleeding",
+            "text": "Uncontrolled bleeding, deep wounds, or significant injuries that do not stop bleeding with pressure should be assessed by a medical professional immediately.",
+            "risk": "high",
+            "category": "trauma"
+        },
+        {
+            "_id": "head_injury",
+            "text": "Head injuries followed by confusion, vomiting, loss of consciousness, severe headache, or changes in behavior should be evaluated by a healthcare professional.",
+            "risk": "high",
+            "category": "head_injury"
+        },
+        {
+            "_id": "mental_health_distress",
+            "text": "Persistent feelings of sadness, anxiety, panic, or emotional distress that interfere with daily functioning may benefit from support from a mental health professional.",
+            "risk": "medium",
+            "category": "mental_health"
+        },
+        {
+            "_id": "panic_attack",
+            "text": "Sudden episodes of intense fear accompanied by chest discomfort, rapid heartbeat, shortness of breath, or dizziness may resemble panic attacks, but medical evaluation is recommended if symptoms are new or severe.",
+            "risk": "medium",
+            "category": "anxiety"
+        },
+        {
+            "_id": "allergic_reaction",
+            "text": "Swelling of the face, lips, tongue, or throat, difficulty breathing, hives, or dizziness following exposure to a substance may indicate a severe allergic reaction and requires immediate medical attention.",
+            "risk": "high",
+            "category": "allergy"
+        },
+        {
+            "_id": "mild_symptoms",
+            "text": "Mild symptoms such as common cold, temporary fatigue, or minor aches often resolve on their own, but medical advice may be helpful if symptoms worsen or persist.",
+            "risk": "low",
+            "category": "general"
+        }
+    ]
+)
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+print("✅ Medical guidelines inserted using Pinecone integrated embeddings.")
 
-index_name = "temp"
-
-index = pc.Index(index_name)
 
 # # List of sentences to upsert
 # sentences = [
@@ -108,25 +200,25 @@ index = pc.Index(index_name)
 # # Upsert the sentences into Pinecone
 # index.upsert_records("namespace",upsert_data)
 
-triggerEmbeddings = []
+# triggerEmbeddings = []
 
-# Retrieve the embeddings for each sentence
-ids_to_fetch = [str(i) for i in range(1,180)]
+# # Retrieve the embeddings for each sentence
+# ids_to_fetch = [str(i) for i in range(1,180)]
  
-res = index.fetch(ids= ids_to_fetch, namespace="namespace")
+# res = index.fetch(ids= ids_to_fetch, namespace="namespace")
 
-for i in range(1,180):
-    id = str(i)
-    triggerEmbeddings.append(res.vectors[id].values)
+# for i in range(1,180):
+#     id = str(i)
+#     triggerEmbeddings.append(res.vectors[id].values)
 
-# print(triggerEmbeddings)
+# # print(triggerEmbeddings)
 
-# Convert list of embeddings to numpy array
-embeddings_array = np.array(triggerEmbeddings)
+# # Convert list of embeddings to numpy array
+# embeddings_array = np.array(triggerEmbeddings)
 
-# Save to file
-np.save("embeddings.npy", embeddings_array)
+# # Save to file
+# np.save("embeddings.npy", embeddings_array)
 
-# Load back later
-loaded_embeddings = np.load("embeddings.npy")
-print(loaded_embeddings.shape) 
+# # Load back later
+# loaded_embeddings = np.load("embeddings.npy")
+# print(loaded_embeddings.shape) 
