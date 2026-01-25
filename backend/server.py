@@ -6,6 +6,7 @@ from openai import OpenAI
 from pinecone import Pinecone
 import uuid
 import subprocess
+import json 
 from datetime import date
 from collections import deque, defaultdict
 import numpy as np
@@ -40,12 +41,15 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 # -----------------------------
 # Model setup (load once at startup)
 # -----------------------------
-print("Loading Whisper model...")
-whisper_model = WhisperModel(
-    "tiny",
-    device="cpu",
-    compute_type="int8"
-)
+whisper_model = None
+
+def get_whisper_model():
+    global whisper_model
+    if whisper_model is None:
+        print("Loading Whisper model for the first time...")
+        whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+    return whisper_model
+
 
 print("Loading emotion recognition model...")
 EMOTION_MODEL_NAME = "r-f/wav2vec-english-speech-emotion-recognition"
@@ -128,6 +132,27 @@ STM = ShortTermMemory(size=30)
 
 
 # ============= HELPER FUNCTIONS =============
+
+def get_conversation_state(user_id):
+    try:
+        state = index.fetch(ids=["__state__"], namespace=user_id)
+        if state.vectors:
+            return state.vectors["__state__"]["metadata"]["state"]
+    except:
+        pass
+    return "NORMAL"
+
+
+def set_conversation_state(user_id, state):
+    index.upsert_records(
+        user_id,
+        [{
+            "id": "__state__",
+            "state": state
+        }]
+    )
+
+    
 def count_recent_followups():
     """
     Counts how many consecutive assistant messages were follow-up questions.
@@ -296,7 +321,8 @@ def convert_webm_to_wav(webm_path, wav_path):
 
 def transcribe_audio(wav_path):
     """Transcribe audio using Whisper."""
-    segments, info = whisper_model.transcribe(wav_path)
+    model = get_whisper_model()
+    segments, info = model.transcribe(wav_path)
     
     full_text = ""
     for segment in segments:
@@ -400,7 +426,7 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
 
     # ---- Agent decision ----
     decision = triage_agent_decision(message)
-
+    print("AGENT: ",decision)
     # ---- Prevent duplicate follow-ups ----
     if decision["action"] == "ASK_FOLLOWUP":
         asked_questions = get_recent_assistant_questions()
@@ -533,25 +559,27 @@ Respond clearly and reassuringly.
 def triage_agent_decision(user_text):
     """
     Decides what action to take before responding.
+    This version trusts the LLM's escalation decision and includes a 
+    keyword-based safety net that can only UPGRADE risk, never downgrade it.
     """
 
     system_prompt = """
-You are a medical triage decision agent.
-Your job is to decide the NEXT ACTION.
+You are a medical triage decision agent. 
+Your job is to decide the NEXT ACTION for a mental health/medical chatbot.
 
 Allowed actions:
-- ASK_FOLLOWUP
-- RETRIEVE_GUIDELINE
-- ESCALATE
+- ASK_FOLLOWUP (if you need more info)
+- RETRIEVE_GUIDELINE (for non-emergency medical/mental health advice)
+- ESCALATE (for emergencies or suicidal ideation)
 
-Rules:
-- Do NOT give medical advice
-- Do NOT diagnose
-- Choose exactly ONE action
-- Respond ONLY in valid JSON
-- If action is ASK_FOLLOWUP, include ONE clear question
+CRITICAL SAFETY RULES:
+1. If the user expresses hopelessness (e.g., 'better off without me', 'no point anymore'), 
+   finality (e.g., 'ending it all', 'not being here tomorrow'), or intent to self-harm,
+   you MUST choose ESCALATE.
+2. If the user mentions physical emergency symptoms (chest pain, can't breathe), choose ESCALATE.
 
-Escalate ONLY for TRUE medical emergencies.
+Respond ONLY in valid JSON:
+{"action": "ACTION_NAME", "reason": "Short explanation", "question": "Optional question for ASK_FOLLOWUP"}
 """
 
     client = OpenAI(
@@ -559,102 +587,76 @@ Escalate ONLY for TRUE medical emergencies.
         api_key=OPENROUTER_API_KEY
     )
 
-    completion = client.chat.completions.create(
-        model="google/gemma-3n-e2b-it:free",
-        messages=[
-            {
-                "role": "user",
-                "content": f"{system_prompt}\n\nUser message:\n{user_text}"
-            }
-        ],
-        temperature=0
-    )
-
-    import json
-
-    raw = completion.choices[0].message.content.strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
-
     try:
+        completion = client.chat.completions.create(
+            model="google/gemma-3n-e2b-it:free",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{system_prompt}\n\nUser message:\n{user_text}"
+                }
+            ],
+            temperature=0 
+        )
+
+        raw = completion.choices[0].message.content.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
         decision = json.loads(raw)
-    except Exception:
+    except Exception as e:
+        print(f"Error parsing agent decision: {e}")
         return {
             "action": "ASK_FOLLOWUP",
-            "reason": "Unable to interpret symptoms safely",
-            "question": "Could you tell me a bit more about what you're experiencing?"
+            "reason": "Parsing error safety fallback",
+            "question": "I want to make sure I'm supporting you correctly. Could you tell me more about how you're feeling?"
         }
 
-    # ---- Normalize action ----
-    if decision.get("action") not in {"ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"}:
-        return {
-            "action": "ASK_FOLLOWUP",
-            "reason": "Invalid action from agent",
-            "question": "Could you clarify your symptoms a bit more?"
-        }
-
-    text = user_text.lower()
-
-    # ---- Hard safety guard for escalation ----
-    RED_FLAG_KEYWORDS = [
-        "chest pain",
-        "can't breathe",
-        "cannot breathe",
-        "shortness of breath",
-        "passed out",
-        "unconscious",
-        "fainted",
-        "seizure",
-        "confusion",
-        "slurred speech",
-        "paralyzed",
-        "kill myself",
-        "suicide"
+    # ---- 1. HARD SAFETY NET (UPGRADE ONLY) ----
+    # This checks for specific phrases. If found, we FORCE escalation 
+    # even if the LLM missed it.
+    text_lower = user_text.lower()
+    CRITICAL_PHRASES = [
+        "kill myself", "suicide", "end my life", "ending it all", 
+        "better off without me", "chest pain", "can't breathe"
     ]
+    
+    if any(phrase in text_lower for phrase in CRITICAL_PHRASES):
+        # Force escalation if a critical phrase is present
+        decision["action"] = "ESCALATE"
+        decision["reason"] = "Critical safety phrase detected in input"
 
-    if decision["action"] == "ESCALATE":
-        if not any(k in text for k in RED_FLAG_KEYWORDS):
-            return {
-                "action": "RETRIEVE_GUIDELINE",
-                "reason": "No clear emergency red flags detected"
-            }
+    # ---- 2. TRUST THE ESCALATION ----
+    # If the decision is already ESCALATE (either from LLM or Safety Net), 
+    # we return immediately. No more downgrading allowed.
+    if decision.get("action") == "ESCALATE":
+        return decision
 
-    # ---- Mental health handling (allow ONE follow-up) ----
-    MENTAL_HEALTH_TRIGGERS = [
-        "depressed",
-        "sad",
-        "hopeless",
-        "disinterest",
-        "lost interest",
-        "numb",
-        "empty"
-    ]
-
-    if any(m in text for m in MENTAL_HEALTH_TRIGGERS):
+    # ---- 3. REFINEMENT LOGIC (Non-Emergencies) ----
+    MENTAL_HEALTH_TRIGGERS = ["depressed", "sad", "hopeless", "disinterest", "numb"]
+    
+    if any(m in text_lower for m in MENTAL_HEALTH_TRIGGERS):
         if decision["action"] == "ASK_FOLLOWUP":
-            return decision  # allow one clarifying question
+            return decision 
         return {
             "action": "RETRIEVE_GUIDELINE",
             "reason": "Mental health symptoms identified"
         }
 
-    # ---- Common physical symptom patterns ----
+    # Physical symptom patterns (Flu, Cold, etc.)
     COMMON_PATTERNS = [
-        ["cough", "fever"],
-        ["cold", "fever"],
-        ["flu", "fever"],
-        ["fever", "rash"],
-        ["lightheaded", "fever"]
+        ["cough", "fever"], ["cold", "fever"], ["fever", "rash"]
     ]
-
-    if any(all(p in text for p in pattern) for pattern in COMMON_PATTERNS):
+    if any(all(p in text_lower for p in pattern) for pattern in COMMON_PATTERNS):
         return {
             "action": "RETRIEVE_GUIDELINE",
-            "reason": "Recognized common non-emergency symptom pattern"
+            "reason": "Common non-emergency pattern"
         }
 
-    # ---- Default: trust agent ----
-    return decision
+    # ---- 4. FINAL VALIDATION ----
+    if decision.get("action") not in {"ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"}:
+        decision["action"] = "ASK_FOLLOWUP"
+        decision["question"] = "Could you tell me a bit more about that?"
 
+    return decision
 
 
 @app.route("/submit_message", methods=["POST"])
