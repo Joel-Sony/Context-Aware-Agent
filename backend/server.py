@@ -22,6 +22,12 @@ from transformers import (
     AutoModelForSequenceClassification
 )
 from faster_whisper import WhisperModel
+import logging
+
+# Disable the standard Werkzeug request logs FOR SEEMA MISS
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
 
 # ============= FLASK APP =============
 app = Flask(__name__)
@@ -39,7 +45,7 @@ app.config['AUDIO_STORAGE'] = AUDIO_STORAGE
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # -----------------------------
-# Model setup (load once at startup)
+# Model setup 
 # -----------------------------
 whisper_model = None
 
@@ -452,7 +458,7 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
     if decision["action"] != "ESCALATE":
         if any(all(p in text for p in pattern) for pattern in GUIDELINE_PATTERNS):
             decision = {
-                "action": "RETRIEVE_GUIDELINE",
+                "action": "RETRIEVE_GUIDELINE", 
                 "reason": "Recognized common non-emergency symptom pattern"
             }
 
@@ -494,6 +500,20 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
         reply = (
             "Based on what you've shared, this could be serious. "
             "Please seek immediate medical attention or contact emergency services."
+        )
+
+        # ADD THIS: Save to Pinecone
+        assistant_id = str(uuid.uuid4())
+        index.upsert_records(
+            user_id,
+            [{
+                "id": assistant_id,
+                "text": reply,
+                "date": today,
+                "turn_id": turn_id,
+                "role": "assistant",
+                "message_type": "text"
+            }]
         )
 
         STM.add(turn_id, "assistant", reply, user_vector)
@@ -553,6 +573,21 @@ Respond clearly and reassuringly.
     )
 
     reply = completion.choices[0].message.content
+    
+    # ADD THIS: Save to Pinecone
+    assistant_id = str(uuid.uuid4())
+    index.upsert_records(
+        user_id,
+        [{
+            "id": assistant_id,
+            "text": reply,
+            "date": today,
+            "turn_id": turn_id,
+            "role": "assistant",
+            "message_type": "text"
+        }]
+    )
+
     STM.add(turn_id, "assistant", reply, user_vector)
     return reply
 
