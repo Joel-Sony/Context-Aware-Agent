@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Menu, MessageSquare, Plus, Home, Mic, Play, Pause, X } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
 
 const user_id = 123; //TEMPORARY SINGLE USER 
 const API_BASE_URL = 'http://127.0.0.1:5000';
@@ -313,7 +314,9 @@ const Start = () => {
                     </span>
                   </div>
                 ) : (
-                  <p className="text-lg md:text-xl">{msg.text}</p>
+                  <div className="prose prose-slate max-w-none text-lg md:text-xl">
+                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                  </div>
                 )}
               </div>
             ))}

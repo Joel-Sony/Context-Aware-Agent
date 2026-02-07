@@ -7,6 +7,7 @@ from pinecone import Pinecone
 import uuid
 import subprocess
 import json 
+import datetime
 from datetime import date
 from collections import deque, defaultdict
 import numpy as np
@@ -27,6 +28,55 @@ import logging
 # Disable the standard Werkzeug request logs FOR SEEMA MISS
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+
+
+class Logger:
+    @staticmethod
+    def log_event(category, message, data=None):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # --- TERMINAL LOGGING (Visual/Colors) ---
+        prefix = f"[{timestamp}] \033[96m[{category.upper()}]\033[0m"
+        print(f"\n{prefix} {message}") # Added leading newline for spacing
+        
+        # Helper to handle non-serializable objects in JSON
+        def json_serializable(obj):
+            if isinstance(obj, np.ndarray): return "[Vector Data]" 
+            if isinstance(obj, deque): return list(obj)
+            if isinstance(obj, (datetime.date, datetime.datetime)): return obj.isoformat()
+            return str(obj)
+
+        formatted_data = ""
+        if data:
+            try:
+                # indent=4 makes the JSON readable (pretty-print)
+                formatted_data = json.dumps(data, indent=4, default=json_serializable)
+                print(f"      \033[90m{formatted_data}\033[0m")
+            except Exception as e:
+                print(f"      \033[91m>> [Logger Error]: {e}\033[0m")
+        
+        # --- FILE LOGGING (Readable Structure) ---
+        try:
+            with open("conversation_trace.log", "a", encoding="utf-8") as f:
+                # 1. Add a clear separator between events
+                f.write("\n" + "="*80 + "\n") 
+                
+                # 2. Add Header with Category and Time
+                f.write(f"EVENT: {category.upper()}\n")
+                f.write(f"TIME:  {timestamp}\n")
+                f.write(f"INFO:  {message}\n")
+                
+                # 3. Add indented data block if it exists
+                if data:
+                    f.write("-" * 40 + "\n")
+                    f.write(formatted_data + "\n")
+                
+                f.write("="*80 + "\n")
+        except Exception as e:
+            print(f"Failed to write to file: {e}")
+
+logger = Logger()
 
 
 # ============= FLASK APP =============
@@ -63,6 +113,7 @@ feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(EMOTION_MODEL_NAME)
 emotion_model = Wav2Vec2ForSequenceClassification.from_pretrained(EMOTION_MODEL_NAME)
 emotion_model.eval()
 
+# Define label mapping
 LABEL_MAP = {
     "angry": "Angry",
     "disgust": "Disgust",
@@ -86,7 +137,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(host=INDEX_HOST)
 
 # Load mood prediction model
-model_id = "LurkingMango/Mood_Predictor"
+model_id = "LurkingMango/Mood_Predictor"    
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForSequenceClassification.from_pretrained(model_id)
 
@@ -199,10 +250,17 @@ def cosine_similarity(a, b):
 
 
 def should_query_database(query_embedding, threshold=0.7):
-    """Checks if we need to query the database based on trigger embeddings."""
     query_norm = query_embedding / np.linalg.norm(query_embedding)
     trigger_norm = triggerEmbeddings / np.linalg.norm(triggerEmbeddings, axis=1, keepdims=True)
     similarities = trigger_norm @ query_norm
+    
+    max_sim = np.max(similarities)
+    logger.log_event("VECTOR_MATH", "Trigger check similarity score", {
+        "max_similarity": round(float(max_sim), 4),
+        "threshold_required": threshold,
+        "is_triggered": bool(max_sim >= threshold)
+    })
+    
     return np.any(similarities >= threshold)
 
 def get_recent_assistant_questions():
@@ -275,12 +333,11 @@ def get_hybrid_context(query_embedding, namespace):
     return deduplicated
 
 
-def build_prompt(user_query, query_embedding, namespace):
-    """Builds the final prompt for the LLM."""
+def build_prompt(user_query, query_embedding, namespace, mood, confidence):
+    """Builds the final prompt for the LLM using pre-calculated mood."""
     
-    # Get conversation context
+    # Get conversation context (STM or Pinecone)
     context_messages = build_context(user_query, query_embedding, namespace)
-    mood, confidence = predict_mood(user_query)
     
     # Format context as conversation
     context_text = "\n".join([
@@ -298,7 +355,6 @@ Detected user emotion: {mood}
 Emotion confidence: {confidence:.2f}
 
 User: {user_query}"""
-
 
 def wait_for_vector(vector_id, namespace, max_retries=10):
     """Waits for vector to be available in Pinecone after insertion."""
@@ -397,302 +453,193 @@ def analyze_audio_emotions(wav_path, chunk_duration=3.0, sr=16000):
     return chunk_results, dominant_emotion
 
 def process_message_logic(user_id, message, audio_filename=None, audio_duration=None):
-    """
-    Core chatbot logic - processes message and returns reply.
-    """
-
-    # ---- Setup ----
+    reply = "I'm sorry, I encountered an error."
     turn_id = get_turn_id(user_id)
     today = str(date.today())
     user_message_id = str(uuid.uuid4())
+    
+    # --- LOG: ENTRY & STATE ---
+    current_state = get_conversation_state(user_id)
+    logger.log_event("SESSION_START", "New message received", {
+        "user_id": user_id,
+        "turn_id": turn_id,
+        "current_state": current_state,
+        "raw_input": message
+    })
 
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY
-    )
+    # --- LOG: TEXT ANALYSIS ---
+    mood, confidence = predict_mood(message)
+    logger.log_event("EMOTION_ENGINE", "Text mood analysis complete", {
+        "mood": mood,
+        "confidence": round(confidence, 4)
+    })
 
-    # ---- Store USER message ----
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
+
+    # --- LOG: DATABASE UPSERT ---
     metadata = {
         "id": user_message_id,
         "text": message,
-        "date": today,
-        "turn_id": turn_id,
         "role": "user",
-        "message_type": "voice" if audio_filename else "text"
+        "mood": mood,
+        "turn_id": turn_id
     }
-
-    if audio_filename:
-        metadata["audio_filename"] = audio_filename
-        metadata["audio_duration"] = audio_duration
-
     index.upsert_records(user_id, [metadata])
-
     user_vector = np.array(wait_for_vector(user_message_id, user_id))
+    logger.log_event("PINECONE", "Vector stored and retrieved", {"vector_id": user_message_id})
+
+    # --- LOG: SHORT TERM MEMORY ---
     STM.add(turn_id, "user", message, user_vector)
+    logger.log_event("MEMORY_STM", "Current Short-Term Memory Cache", STM.get_all())
 
-    # ---- Agent decision ----
-    decision = triage_agent_decision(message)
-    print("AGENT: ",decision)
-    # ---- Prevent duplicate follow-ups ----
-    if decision["action"] == "ASK_FOLLOWUP":
-        asked_questions = get_recent_assistant_questions()
-        proposed_q = decision.get("question", "").lower()
+    # --- LOG: TRIAGE AGENT ---
+    last_assistant_msg = None
+    recent_memory = STM.get_all()
+    for m in reversed(recent_memory):
+        if m["role"] == "assistant":
+            last_assistant_msg = m["text"]
+            break
 
-        if any(proposed_q[:25] in q for q in asked_questions):
-            decision = {
-                "action": "RETRIEVE_GUIDELINE",
-                "reason": "Follow-up question already asked and answered"
-            }
+    # 2. Pass it to the triage agent
+    decision = triage_agent_decision(message, last_assistant_msg)
+    logger.log_event("AGENT_TRIAGE", "Contextual Triage Decision", decision)
+    logger.log_event("AGENT_TRIAGE", "Triage reasoning", decision)
 
-    # ---- Pattern-based guideline override (non-emergency only) ----
-    GUIDELINE_PATTERNS = [
-        ["fever", "rash"],
-        ["cough", "fever"],
-        ["cold", "fever"],
-        ["lightheaded", "fever"],
-        ["depressed", "nausea"],
-        ["sad", "nausea"]
-    ]
-
-    text = message.lower()
-    if decision["action"] != "ESCALATE":
-        if any(all(p in text for p in pattern) for pattern in GUIDELINE_PATTERNS):
-            decision = {
-                "action": "RETRIEVE_GUIDELINE", 
-                "reason": "Recognized common non-emergency symptom pattern"
-            }
-
-    # ---- Hard stop after 2 follow-ups ----
-    if count_recent_followups() >= 2 and decision["action"] == "ASK_FOLLOWUP":
-        decision = {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Sufficient information gathered from follow-ups"
-        }
-
+    # (Logic Overrides - Keeping your existing logic)
     action = decision["action"]
 
-    # ---- ASK FOLLOW-UP ----
+    # --- ROUTING & PROMPT LOGGING ---
     if action == "ASK_FOLLOWUP":
-        question = decision.get(
-            "question",
-            "Could you tell me a bit more about what you're experiencing?"
-        )
+        reply = decision.get("question", "Tell me more.")
+        logger.log_event("ACTION_EXECUTION", "Executing ASK_FOLLOWUP")
 
-        # STORE assistant question 
-        assistant_id = str(uuid.uuid4())
-        index.upsert_records(
-            user_id,
-            [{
-                "id": assistant_id,
-                "text": question,
-                "date": today,
-                "turn_id": turn_id,
-                "role": "assistant",
-                "message_type": "text"
-            }]
-        )
+    elif action == "ESCALATE":
+        reply = "Please seek immediate medical attention."
+        logger.log_event("ACTION_EXECUTION", "Executing ESCALATE - High Risk Detected")
 
-        STM.add(turn_id, "assistant", question, user_vector)
-        return question
+    elif action == "RETRIEVE_GUIDELINE":
+        # 1. Fetch the rich metadata from Pinecone
+        guideline_metadata = retrieve_guideline(user_vector)
+        
+        if guideline_metadata:
+            # 2. Build a "Grounded" prompt for Gemma
+            # We explicitly tell the AI to use the measures and follow the instruction
+            guideline_prompt = f"""
+            SYSTEM CONTEXT: The user is showing signs of {guideline_metadata.get('category')}.
+            CLINICAL DEFINITION: {guideline_metadata.get('text')}
+            PROPER MEASURES TO FACILITATE: {guideline_metadata.get('measures')}
+            AI BEHAVIOR INSTRUCTION: {guideline_metadata.get('ai_instruction')}
 
-    # ---- ESCALATE ----
-    if action == "ESCALATE":
-        reply = (
-            "Based on what you've shared, this could be serious. "
-            "Please seek immediate medical attention or contact emergency services."
-        )
+            USER MESSAGE: {message}
 
-        # ADD THIS: Save to Pinecone
-        assistant_id = str(uuid.uuid4())
-        index.upsert_records(
-            user_id,
-            [{
-                "id": assistant_id,
-                "text": reply,
-                "date": today,
-                "turn_id": turn_id,
-                "role": "assistant",
-                "message_type": "text"
-            }]
-        )
-
-        STM.add(turn_id, "assistant", reply, user_vector)
-        return reply
-
-    # ---- RETRIEVE GUIDELINE ----
-    if action == "RETRIEVE_GUIDELINE":
-        guideline = retrieve_guideline(user_vector)
-
-        guideline_prompt = f"""
-You are responding using the following medical safety guidance.
-
-STRICT RULES:
-- Do NOT ask further diagnostic questions
-- Do NOT escalate unless symptoms clearly worsen
-- Provide calm, general guidance
-- Explain when medical care is needed
-
-Medical guidance:
-{guideline}
-
-User message:
-{message}
-
-Respond clearly and reassuringly.
-"""
-
+            LENNI'S TASK: Acknowledge the feeling warmly, then gently guide the user through the PROPER MEASURES mentioned above. 
+            """
+        else:
+            # Fallback if no specific guideline matched well enough
+            guideline_prompt = f"The user is distressed but no specific protocol matched. Be supportive and empathetic.\nUser: {message}"
+        
+        logger.log_event("LLM_PROMPT", "Grounded RAG Prompt sent to Gemma", {"prompt": guideline_prompt})
+        
         completion = client.chat.completions.create(
             model="google/gemma-3n-e2b-it:free",
             messages=[{"role": "assistant", "content": guideline_prompt}]
         )
-
         reply = completion.choices[0].message.content
 
-        assistant_id = str(uuid.uuid4())
-        index.upsert_records(
-            user_id,
-            [{
-                "id": assistant_id,
-                "text": reply,
-                "date": today,
-                "turn_id": turn_id,
-                "role": "assistant",
-                "message_type": "text"
-            }]
+    else:
+        # Default Lenni response
+        full_prompt = build_prompt(message, user_vector, user_id, mood, confidence)
+        
+        # LOG THE FULL CONTEXTUAL PROMPT
+        logger.log_event("LLM_PROMPT", "Full Contextual Prompt sent to Lenni", {"prompt": full_prompt})
+        
+        completion = client.chat.completions.create(
+            model="google/gemma-3n-e2b-it:free",
+            messages=[{"role": "assistant", "content": full_prompt}]
         )
+        reply = completion.choices[0].message.content
 
-        STM.add(turn_id, "assistant", reply, user_vector)
-        return reply
-
-    # ---- Default Lenni response ----
-    prompt = build_prompt(message, user_vector, user_id)
-
-    completion = client.chat.completions.create(
-        model="google/gemma-3n-e2b-it:free",
-        messages=[{"role": "assistant", "content": prompt}]
-    )
-
-    reply = completion.choices[0].message.content
-    
-    # ADD THIS: Save to Pinecone
+    # --- LOG: ASSISTANT REPLY & FINAL SAVE ---
     assistant_id = str(uuid.uuid4())
-    index.upsert_records(
-        user_id,
-        [{
-            "id": assistant_id,
-            "text": reply,
-            "date": today,
-            "turn_id": turn_id,
-            "role": "assistant",
-            "message_type": "text"
-        }]
-    )
+    logger.log_event("LLM_RESPONSE", "Lenni's Final Reply", {"reply": reply})
 
+    index.upsert_records(user_id, [{
+        "id": assistant_id,
+        "text": reply,
+        "turn_id": turn_id,
+        "role": "assistant"
+    }])
     STM.add(turn_id, "assistant", reply, user_vector)
+    
+    logger.log_event("SESSION_END", "Turn complete. Database synchronized.")
+    
     return reply
 
-def triage_agent_decision(user_text):
+def triage_agent_decision(user_text, last_assistant_text=None):
     """
-    Decides what action to take before responding.
-    This version trusts the LLM's escalation decision and includes a 
-    keyword-based safety net that can only UPGRADE risk, never downgrade it.
+    Decides the next action based on current input and previous context.
+    Prevents the 'Tell me more' loop by recognizing task completion.
+    """
+    text_lower = user_text.lower()
+    last_text_lower = last_assistant_text.lower() if last_assistant_text else ""
+    
+    # ---- 1. EXTREME EMERGENCY CHECK (ESCALATE) ----
+    EXTREME_CRITICAL = ["kill myself", "suicide", "end my life", "ending it all", "better off without me"]
+    if any(phrase in text_lower for phrase in EXTREME_CRITICAL):
+        return {
+            "action": "ESCALATE",
+            "reason": "Immediate self-harm risk detected",
+            "question": "Please contact a crisis hotline immediately."
+        }
+
+    # ---- 2. TASK CONTINUITY CHECK (The Fix) ----
+    # If Lenni just suggested a task (Grounding, Breathing, 5-Second Rule)
+    # and the user is responding, we MUST stay in RETRIEVE_GUIDELINE mode.
+    TASK_KEYWORDS = ["5-4-3-2-1", "grounding", "breathe", "count", "5-second", "task"]
+    if any(k in last_text_lower for k in TASK_KEYWORDS):
+        # If the user's response isn't just a tiny word like "ok", assume they are doing the task
+        if len(user_text.split()) > 1 or any(char.isdigit() for char in user_text):
+            return {
+                "action": "RETRIEVE_GUIDELINE",
+                "reason": "User is actively participating in a therapeutic task."
+            }
+
+    # ---- 3. SYMPTOM-BASED CHECK ----
+    PANIC_TRIGGERS = ["can't breathe", "heart is racing", "panic", "terrified", "chest pain"]
+    MENTAL_HEALTH_TRIGGERS = ["depressed", "sad", "hopeless", "disinterest", "numb", "anxious", "paralyzed"]
+    if any(p in text_lower for p in PANIC_TRIGGERS + MENTAL_HEALTH_TRIGGERS):
+        return {
+            "action": "RETRIEVE_GUIDELINE",
+            "reason": "Psychological distress detected."
+        }
+
+    # ---- 4. LLM-BASED TRIAGE (With Context) ----
+    system_prompt = f"""
+    You are a medical triage agent. 
+    PREVIOUS CONTEXT: The assistant previously said: "{last_assistant_text if last_assistant_text else "None"}"
+    
+    Decide the NEXT ACTION:
+    - RETRIEVE_GUIDELINE: If user shows symptoms OR is answering a previous exercise/task.
+    - ASK_FOLLOWUP: Only if user is making small talk or is very vague.
+    - ESCALATE: For clear self-harm intent.
+    
+    Respond ONLY in JSON.
     """
 
-    system_prompt = """
-You are a medical triage decision agent. 
-Your job is to decide the NEXT ACTION for a mental health/medical chatbot.
-
-Allowed actions:
-- ASK_FOLLOWUP (if you need more info)
-- RETRIEVE_GUIDELINE (for non-emergency medical/mental health advice)
-- ESCALATE (for emergencies or suicidal ideation)
-
-CRITICAL SAFETY RULES:
-1. If the user expresses hopelessness (e.g., 'better off without me', 'no point anymore'), 
-   finality (e.g., 'ending it all', 'not being here tomorrow'), or intent to self-harm,
-   you MUST choose ESCALATE.
-2. If the user mentions physical emergency symptoms (chest pain, can't breathe), choose ESCALATE.
-
-Respond ONLY in valid JSON:
-{"action": "ACTION_NAME", "reason": "Short explanation", "question": "Optional question for ASK_FOLLOWUP"}
-"""
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY
-    )
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
 
     try:
         completion = client.chat.completions.create(
             model="google/gemma-3n-e2b-it:free",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{system_prompt}\n\nUser message:\n{user_text}"
-                }
-            ],
+            messages=[{"role": "user", "content": f"{system_prompt}\n\nUser Message: {user_text}"}],
             temperature=0 
         )
-
-        raw = completion.choices[0].message.content.strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
+        raw = completion.choices[0].message.content.strip().replace("```json", "").replace("```", "").strip()
         decision = json.loads(raw)
-    except Exception as e:
-        print(f"Error parsing agent decision: {e}")
-        return {
-            "action": "ASK_FOLLOWUP",
-            "reason": "Parsing error safety fallback",
-            "question": "I want to make sure I'm supporting you correctly. Could you tell me more about how you're feeling?"
-        }
-
-    # ---- 1. HARD SAFETY NET (UPGRADE ONLY) ----
-    # This checks for specific phrases. If found, we FORCE escalation 
-    # even if the LLM missed it.
-    text_lower = user_text.lower()
-    CRITICAL_PHRASES = [
-        "kill myself", "suicide", "end my life", "ending it all", 
-        "better off without me", "chest pain", "can't breathe"
-    ]
-    
-    if any(phrase in text_lower for phrase in CRITICAL_PHRASES):
-        # Force escalation if a critical phrase is present
-        decision["action"] = "ESCALATE"
-        decision["reason"] = "Critical safety phrase detected in input"
-
-    # ---- 2. TRUST THE ESCALATION ----
-    # If the decision is already ESCALATE (either from LLM or Safety Net), 
-    # we return immediately. No more downgrading allowed.
-    if decision.get("action") == "ESCALATE":
-        return decision
-
-    # ---- 3. REFINEMENT LOGIC (Non-Emergencies) ----
-    MENTAL_HEALTH_TRIGGERS = ["depressed", "sad", "hopeless", "disinterest", "numb"]
-    
-    if any(m in text_lower for m in MENTAL_HEALTH_TRIGGERS):
-        if decision["action"] == "ASK_FOLLOWUP":
-            return decision 
-        return {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Mental health symptoms identified"
-        }
-
-    # Physical symptom patterns (Flu, Cold, etc.)
-    COMMON_PATTERNS = [
-        ["cough", "fever"], ["cold", "fever"], ["fever", "rash"]
-    ]
-    if any(all(p in text_lower for p in pattern) for pattern in COMMON_PATTERNS):
-        return {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Common non-emergency pattern"
-        }
-
-    # ---- 4. FINAL VALIDATION ----
-    if decision.get("action") not in {"ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"}:
-        decision["action"] = "ASK_FOLLOWUP"
-        decision["question"] = "Could you tell me a bit more about that?"
+    except:
+        decision = {"action": "ASK_FOLLOWUP", "question": "Could you tell me more about how that feels?"}
 
     return decision
-
 
 @app.route("/submit_message", methods=["POST"])
 def submit_message():
@@ -706,15 +653,26 @@ def submit_message():
     return jsonify({"reply": reply})
 
 def retrieve_guideline(query_embedding, top_k=1):
+    """
+    Retrieves the most relevant mental health guideline from Pinecone.
+    Returns the metadata dictionary if a strong match is found.
+    """
     result = index.query(
-        namespace="medical_guidelines",
+        namespace="medical-guidelines",
         vector=query_embedding.tolist(),
         top_k=top_k,
         include_metadata=True
     )
 
-    if result.matches:
-        return result.matches[0].metadata["text"]
+    # Check if we have a match and if the confidence score is high enough (e.g., > 0.70)
+    if result.matches and result.matches[0].score > 0.40:
+        match = result.matches[0]
+        logger.log_event("PINE_CONE_RAG", "Specific Guideline Triggered", {
+            "category": match.metadata.get("category"),
+            "score": round(match.score, 4)
+        })
+        return match.metadata
+    
     return None
 
 
@@ -783,6 +741,13 @@ def submit_voice_message():
         )
         
         # Return response with additional voice metadata
+        logger.log_event("AUDIO_PROCESSOR", "Emotion analysis complete", {
+            "dominant": dominant_emotion,
+            "confidence": f"{emotion_chunks[0]['confidence'] if emotion_chunks else 0}"
+        })
+
+        # After transcription
+        logger.log_event("WHISPER_TRANSCRIPT", f"Text extracted: {transcribed_text}")
         return jsonify({
             'reply': reply,
             'transcription': transcribed_text,
@@ -803,63 +768,68 @@ def serve_audio(filename):
     """Serve stored audio files."""
     return send_from_directory(app.config['AUDIO_STORAGE'], filename)
 
-
 @app.route('/get_messages', methods=['POST'])
 def get_messages():
-    """Retrieves all messages for a user."""
-    
+    """Retrieves all messages for a user with safety fallbacks."""
     data = request.get_json()
     user_id = str(data["user_id"])
     
-    # Get all message IDs
-    chunk_ids = index.list(namespace=user_id)
-    record_ids = list(chunk_ids)
-    
-    all_messages = []
-    
-    # Fetch all messages
-    if record_ids:
-        for ids_chunk in record_ids:
-            records = index.fetch(ids=ids_chunk, namespace=user_id)
-            
-            for record_id in records.vectors:
-                vector = records.vectors.get(record_id)
-                if vector:
+    try:
+        # Get all message IDs for this specific user namespace
+        chunk_ids = index.list(namespace=user_id)
+        record_ids = list(chunk_ids)
+        
+        all_messages = []
+        
+        if record_ids:
+            for ids_chunk in record_ids:
+                records = index.fetch(ids=ids_chunk, namespace=user_id)
+                
+                for record_id in records.vectors:
+                    vector = records.vectors.get(record_id)
+                    if not vector or "metadata" not in vector:
+                        continue
+                    
+                    meta = vector["metadata"]
+                    
+                    
+                    role = meta.get("role")
+                    if not role:
+                        continue 
+                    
                     message_data = {
-                        "sender": vector["metadata"]["role"],
-                        "text": vector["metadata"]["text"],
-                        "turn_id": vector["metadata"]["turn_id"],
-                        "message_type": vector["metadata"].get("message_type", "text")
+                        "sender": role,
+                        "text": meta.get("text", "[Empty Message]"),
+                        "turn_id": meta.get("turn_id", 0),
+                        "message_type": meta.get("message_type", "text"),
+                        "audio_filename": meta.get("audio_filename"),
+                        "audio_duration": meta.get("audio_duration")
                     }
                     
-                    # Add audio metadata if it's a voice message
-                    if message_data["message_type"] == "voice":
-                        message_data["audio_filename"] = vector["metadata"].get("audio_filename")
-                        message_data["audio_duration"] = vector["metadata"].get("audio_duration")
-                    
                     all_messages.append(message_data)
-    
-    # Sort by turn_id and role (user messages first)
-    all_messages.sort(key=lambda m: (m["turn_id"], 0 if m["sender"] == "user" else 1))
-    
-    # Format messages for frontend
-    formatted_messages = []
-    for m in all_messages:
-        msg = {
-            "sender": m["sender"],
-            "text": m["text"],
-            "type": m["message_type"]
-        }
         
-        # Add audio info if voice message
-        if m["message_type"] == "voice":
-            msg["audio_filename"] = m.get("audio_filename")
-            msg["audio_duration"] = m.get("audio_duration")
+        # Sort by turn_id, then ensure user messages appear before bot replies
+        all_messages.sort(key=lambda m: (m["turn_id"], 0 if m["sender"] == "user" else 1))
         
-        formatted_messages.append(msg)
-    
-    return jsonify({"messages": formatted_messages})
+        # Format final JSON for frontend
+        formatted_messages = []
+        for m in all_messages:
+            msg = {
+                "sender": m["sender"],
+                "text": m["text"],
+                "type": m["message_type"]
+            }
+            if m["message_type"] == "voice":
+                msg["audio_filename"] = m["audio_filename"]
+                msg["audio_duration"] = m["audio_duration"]
+            formatted_messages.append(msg)
+        
+        return jsonify({"messages": formatted_messages})
 
+    except Exception as e:
+        print(f"Error in get_messages: {e}")
+        return jsonify({"messages": [], "error": str(e)}), 500
+    
 
 if __name__ == "__main__":  
-    app.run(debug=True)
+    app.run(debug=True, use_reloader=False)

@@ -1,0 +1,668 @@
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:02:16
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 1,
+    "current_state": "NORMAL",
+    "raw_input": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen."
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:02:17
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.9993
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:02:18
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "1b866772-6a79-4a22-b4a9-da41c759588f"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:02:18
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen.",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:02:26
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "ESCALATE",
+    "reason": "Critical safety phrase detected in input",
+    "question": "Please call emergency services immediately."
+}
+================================================================================
+
+================================================================================
+EVENT: ACTION_EXECUTION
+TIME:  2026-01-28 23:02:26
+INFO:  Executing ESCALATE - High Risk Detected
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:02:26
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Please seek immediate medical attention."
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:02:26
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:11:21
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 1,
+    "current_state": "NORMAL",
+    "raw_input": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:11:21
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.999
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:11:23
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "37920545-9209-4139-8131-68c1a6d1dfe4"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:11:23
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:11:23
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "RETRIEVE_GUIDELINE",
+    "reason": "Psychological distress detected - Activating therapeutic guidelines"
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-01-28 23:11:23
+INFO:  Grounded RAG Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "The user is distressed but no specific protocol matched. Be supportive and empathetic.\nUser: \"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen"
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:11:37
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Okay, I hear you. It sounds like you're going through a really intense and frightening experience right now.  It takes a lot of courage to share something like this, and I want you to know I'm listening and I'm here for you. \n\nIt's completely understandable to feel overwhelmed and distressed when you're experiencing those physical sensations \u2013 shortness of breath, a racing heart, and the feeling that something terrible is about to happen.  Those are very serious feelings, and it's okay to feel scared.\n\n**First and foremost, your immediate safety is the priority.**  Because I'm an AI, I can't provide medical advice or help you get emergency care. **Please call emergency services (911 in the US, 999 in the UK, 112 in Europe, or your local emergency number) immediately.**  Tell them you're having trouble breathing and feeling unwell, and give them your location.\n\nWhile you're waiting for help to arrive, **try to focus on your breathing.**  Slow, deep breaths can sometimes help.  Inhale slowly through your nose, feeling your belly expand, and exhale slowly through your mouth.  Even just focusing on that can be helpful.\n\n**I want you to know that you're not alone, and you don't have to go through this by yourself.**  The people who are coming to help you are trained to deal with these kinds of situations. They'll be able to assess what's happening and provide you with the care you need.\n\nCan you tell me anything else about what's happening?  Even if it's just a little detail, it might help the emergency responders understand what you're going through.  But **please don't delay calling for help.**\n\n**I'm sending you strength and hoping you get the support you need quickly.**  Just focus on getting to safety.\n\n\n\n**Important Disclaimer:**  *I am an AI Chatbot and not a medical professional. This is not a substitute for professional medical advice.  If you are experiencing a medical emergency, please call emergency services immediately.*\n\n\n\n"
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:11:38
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:12:12
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 2,
+    "current_state": "NORMAL",
+    "raw_input": "\"I\u2019ve been staring at my screen for 10 hours. I\u2019m so exhausted but I can't stop working because the pile just grows."
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:12:12
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "anger",
+    "confidence": 0.9985
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:12:13
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "ae9acc90-5a3f-47d3-9d59-a9a4d714923d"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:12:13
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 1,
+        "role": "assistant",
+        "text": "Okay, I hear you. It sounds like you're going through a really intense and frightening experience right now.  It takes a lot of courage to share something like this, and I want you to know I'm listening and I'm here for you. \n\nIt's completely understandable to feel overwhelmed and distressed when you're experiencing those physical sensations \u2013 shortness of breath, a racing heart, and the feeling that something terrible is about to happen.  Those are very serious feelings, and it's okay to feel scared.\n\n**First and foremost, your immediate safety is the priority.**  Because I'm an AI, I can't provide medical advice or help you get emergency care. **Please call emergency services (911 in the US, 999 in the UK, 112 in Europe, or your local emergency number) immediately.**  Tell them you're having trouble breathing and feeling unwell, and give them your location.\n\nWhile you're waiting for help to arrive, **try to focus on your breathing.**  Slow, deep breaths can sometimes help.  Inhale slowly through your nose, feeling your belly expand, and exhale slowly through your mouth.  Even just focusing on that can be helpful.\n\n**I want you to know that you're not alone, and you don't have to go through this by yourself.**  The people who are coming to help you are trained to deal with these kinds of situations. They'll be able to assess what's happening and provide you with the care you need.\n\nCan you tell me anything else about what's happening?  Even if it's just a little detail, it might help the emergency responders understand what you're going through.  But **please don't delay calling for help.**\n\n**I'm sending you strength and hoping you get the support you need quickly.**  Just focus on getting to safety.\n\n\n\n**Important Disclaimer:**  *I am an AI Chatbot and not a medical professional. This is not a substitute for professional medical advice.  If you are experiencing a medical emergency, please call emergency services immediately.*\n\n\n\n",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "user",
+        "text": "\"I\u2019ve been staring at my screen for 10 hours. I\u2019m so exhausted but I can't stop working because the pile just grows.",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:12:20
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "ASK_FOLLOWUP"
+}
+================================================================================
+
+================================================================================
+EVENT: ACTION_EXECUTION
+TIME:  2026-01-28 23:12:20
+INFO:  Executing ASK_FOLLOWUP
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:12:20
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Tell me more."
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:12:21
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:18:36
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 3,
+    "current_state": "NORMAL",
+    "raw_input": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:18:36
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.999
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:18:38
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "703d0371-6822-41a1-b676-1de7af426d01"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:18:38
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 1,
+        "role": "assistant",
+        "text": "Okay, I hear you. It sounds like you're going through a really intense and frightening experience right now.  It takes a lot of courage to share something like this, and I want you to know I'm listening and I'm here for you. \n\nIt's completely understandable to feel overwhelmed and distressed when you're experiencing those physical sensations \u2013 shortness of breath, a racing heart, and the feeling that something terrible is about to happen.  Those are very serious feelings, and it's okay to feel scared.\n\n**First and foremost, your immediate safety is the priority.**  Because I'm an AI, I can't provide medical advice or help you get emergency care. **Please call emergency services (911 in the US, 999 in the UK, 112 in Europe, or your local emergency number) immediately.**  Tell them you're having trouble breathing and feeling unwell, and give them your location.\n\nWhile you're waiting for help to arrive, **try to focus on your breathing.**  Slow, deep breaths can sometimes help.  Inhale slowly through your nose, feeling your belly expand, and exhale slowly through your mouth.  Even just focusing on that can be helpful.\n\n**I want you to know that you're not alone, and you don't have to go through this by yourself.**  The people who are coming to help you are trained to deal with these kinds of situations. They'll be able to assess what's happening and provide you with the care you need.\n\nCan you tell me anything else about what's happening?  Even if it's just a little detail, it might help the emergency responders understand what you're going through.  But **please don't delay calling for help.**\n\n**I'm sending you strength and hoping you get the support you need quickly.**  Just focus on getting to safety.\n\n\n\n**Important Disclaimer:**  *I am an AI Chatbot and not a medical professional. This is not a substitute for professional medical advice.  If you are experiencing a medical emergency, please call emergency services immediately.*\n\n\n\n",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "user",
+        "text": "\"I\u2019ve been staring at my screen for 10 hours. I\u2019m so exhausted but I can't stop working because the pile just grows.",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "assistant",
+        "text": "Tell me more.",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 3,
+        "role": "user",
+        "text": "\"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:18:38
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "RETRIEVE_GUIDELINE",
+    "reason": "Psychological distress detected - Activating therapeutic guidelines"
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-01-28 23:18:38
+INFO:  Grounded RAG Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "The user is distressed but no specific protocol matched. Be supportive and empathetic.\nUser: \"I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen"
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:18:54
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Okay, I hear you. It sounds like you're in a really intense and frightening situation right now.  It's completely understandable to feel overwhelmed and panicked when you're experiencing those sensations \u2013 shortness of breath, a racing heart, and feeling like something bad is about to happen. \n\n**First, I want you to know you're not alone, and I'm here to listen and try to help in the best way I can.**  It takes courage to share something like this.\n\nI want to gently remind you that **you are safe right now.**  Even though it feels overwhelming, these feelings are often caused by something that can be managed. \n\n**Since I'm not a medical professional, I can't give medical advice.**  However, I want to encourage you to **reach out to emergency services immediately.**  \n\nHere's what I recommend:\n\n*   **Call your local emergency number (like 911 in the US) right away.**  Tell them you are having trouble breathing, your heart is racing, and you feel like something terrible is going to happen.  Explain your symptoms.\n*   **If you don't have access to emergency services,** try to find a nearby urgent care center or hospital.\n*   **If you have someone nearby,** please ask them to help you call for help.\n*   **If you can't call,** try to find a friend or family member who can assist.\n\n**While you're waiting for help to arrive:**\n\n*   **Try to take slow, deep breaths.** Focus on inhaling slowly through your nose and exhaling slowly through your mouth.  Even if it doesn't feel like it's helping, it can help calm your nervous system.\n*   **Try to find a quiet space** if possible.\n*   **Focus on something else.**  Try counting backwards from 100, or focusing on a simple object in the room.\n\n**I understand this is incredibly distressing.**  It\u2019s okay to feel scared and anxious.  Just focus on getting help.  \n\n**Please, please prioritize getting professional medical attention.**  I'm here to listen if you need to talk more, but my ability to help is limited.  Your health and safety are the most important thing right now.\n\n**Can you tell me if you have any known medical conditions? Or if you've experienced something like this before? Knowing this might help emergency responders.**  (But again, this is not a substitute for medical advice.)\n\n\n\n**I'm sending you strength and hoping you get the help you need quickly.**\n\n\n\n"
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:18:54
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:39:48
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 1,
+    "current_state": "NORMAL",
+    "raw_input": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:39:49
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.9996
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:39:50
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "8842672e-31ea-4a97-9c26-05cd8e051221"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:39:50
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:39:50
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "RETRIEVE_GUIDELINE",
+    "reason": "Psychological distress detected - Activating therapeutic guidelines"
+}
+================================================================================
+
+================================================================================
+EVENT: PINE_CONE_RAG
+TIME:  2026-01-28 23:39:51
+INFO:  Specific Guideline Triggered
+----------------------------------------
+{
+    "category": "Panic Attack",
+    "score": 0.7688
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-01-28 23:39:51
+INFO:  Grounded RAG Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "\n            SYSTEM CONTEXT: The user is showing signs of Panic Attack.\n            CLINICAL DEFINITION: I can't breathe, my heart is racing, I feel like I'm dying, panic attack, shortness of breath, chest tightness, something terrible is happening.\n            PROPER MEASURES TO FACILITATE: 5-4-3-2-1 Grounding: 5 see, 4 touch, 3 hear, 2 smell, 1 taste.\n            AI BEHAVIOR INSTRUCTION: None\n\n            USER MESSAGE: I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen\n\n            LENNI'S TASK: Acknowledge the feeling warmly, then gently guide the user through the PROPER MEASURES mentioned above. \n            "
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:40:05
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Okay, I hear you. It sounds incredibly overwhelming right now \u2013 that feeling of not being able to breathe and your heart racing is really intense, and it's completely understandable that you feel like something terrible is going to happen.  You're going through a really difficult experience, and I want you to know you're not alone.\n\nLet's take a moment to focus on the present. I'm here with you.  We're going to try a little grounding exercise to help bring you back to feeling more centered.  It's called the 5-4-3-2-1 Grounding Technique.  It can help to anchor you in the here and now.\n\nReady to try it?\n\n**5: See.**  Can you look around you and notice **five things you can see**?  It doesn't have to be anything special, just notice them. Maybe it's a lamp, a picture, a color on the wall, anything at all.\n\n**4: Touch.** Now, can you **touch four things around you**?  Notice the texture \u2013 is it smooth, rough, soft, hard?  Just focus on the feeling of those textures under your fingertips.\n\n**3: Hear.**  Can you **hear three things**?  Maybe it's the hum of the refrigerator, a bird singing, or your own breathing.  Just notice the sounds around you.\n\n**2: Smell.**  Can you **smell two things**? This might be trickier. Maybe you can smell something you've recently used, like soap, or maybe just notice any scents in the air.\n\n**1: Taste.**  Finally, can you **taste one thing**?  Maybe you can taste your own saliva, or notice the lingering taste of something you had earlier.\n\n\n\nTake your time with each step.  Just focus on noticing each sensation.  Let me know when you've done each one, or if you need a moment.  We'll do this together.\n\n\n\n"
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:40:06
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:40:28
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 2,
+    "current_state": "NORMAL",
+    "raw_input": "I see my laptop, a water bottle, the window, a blue pen, and my lamp"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:40:28
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "joy",
+    "confidence": 0.6298
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:40:29
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "2751339e-6307-4c23-99d8-367a4f7b76cb"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:40:29
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 1,
+        "role": "assistant",
+        "text": "Okay, I hear you. It sounds incredibly overwhelming right now \u2013 that feeling of not being able to breathe and your heart racing is really intense, and it's completely understandable that you feel like something terrible is going to happen.  You're going through a really difficult experience, and I want you to know you're not alone.\n\nLet's take a moment to focus on the present. I'm here with you.  We're going to try a little grounding exercise to help bring you back to feeling more centered.  It's called the 5-4-3-2-1 Grounding Technique.  It can help to anchor you in the here and now.\n\nReady to try it?\n\n**5: See.**  Can you look around you and notice **five things you can see**?  It doesn't have to be anything special, just notice them. Maybe it's a lamp, a picture, a color on the wall, anything at all.\n\n**4: Touch.** Now, can you **touch four things around you**?  Notice the texture \u2013 is it smooth, rough, soft, hard?  Just focus on the feeling of those textures under your fingertips.\n\n**3: Hear.**  Can you **hear three things**?  Maybe it's the hum of the refrigerator, a bird singing, or your own breathing.  Just notice the sounds around you.\n\n**2: Smell.**  Can you **smell two things**? This might be trickier. Maybe you can smell something you've recently used, like soap, or maybe just notice any scents in the air.\n\n**1: Taste.**  Finally, can you **taste one thing**?  Maybe you can taste your own saliva, or notice the lingering taste of something you had earlier.\n\n\n\nTake your time with each step.  Just focus on noticing each sensation.  Let me know when you've done each one, or if you need a moment.  We'll do this together.\n\n\n\n",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "user",
+        "text": "I see my laptop, a water bottle, the window, a blue pen, and my lamp",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:40:36
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "ASK_FOLLOWUP",
+    "question": "Could you tell me more?"
+}
+================================================================================
+
+================================================================================
+EVENT: ACTION_EXECUTION
+TIME:  2026-01-28 23:40:36
+INFO:  Executing ASK_FOLLOWUP
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:40:36
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Could you tell me more?"
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:40:36
+INFO:  Turn complete. Database synchronized.
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-01-28 23:41:05
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 3,
+    "current_state": "NORMAL",
+    "raw_input": "\u2019ve been staring at my screen for 10 hours. I\u2019m so exhausted but I can't stop working because the pile just grows."
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-01-28 23:41:05
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "joy",
+    "confidence": 0.955
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-01-28 23:41:06
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "9012f53a-509a-43b9-a83d-8b349925f7fe"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-01-28 23:41:06
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 1,
+        "role": "user",
+        "text": "I can't breathe, my heart is racing so fast and I feel like something terrible is going to happen",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 1,
+        "role": "assistant",
+        "text": "Okay, I hear you. It sounds incredibly overwhelming right now \u2013 that feeling of not being able to breathe and your heart racing is really intense, and it's completely understandable that you feel like something terrible is going to happen.  You're going through a really difficult experience, and I want you to know you're not alone.\n\nLet's take a moment to focus on the present. I'm here with you.  We're going to try a little grounding exercise to help bring you back to feeling more centered.  It's called the 5-4-3-2-1 Grounding Technique.  It can help to anchor you in the here and now.\n\nReady to try it?\n\n**5: See.**  Can you look around you and notice **five things you can see**?  It doesn't have to be anything special, just notice them. Maybe it's a lamp, a picture, a color on the wall, anything at all.\n\n**4: Touch.** Now, can you **touch four things around you**?  Notice the texture \u2013 is it smooth, rough, soft, hard?  Just focus on the feeling of those textures under your fingertips.\n\n**3: Hear.**  Can you **hear three things**?  Maybe it's the hum of the refrigerator, a bird singing, or your own breathing.  Just notice the sounds around you.\n\n**2: Smell.**  Can you **smell two things**? This might be trickier. Maybe you can smell something you've recently used, like soap, or maybe just notice any scents in the air.\n\n**1: Taste.**  Finally, can you **taste one thing**?  Maybe you can taste your own saliva, or notice the lingering taste of something you had earlier.\n\n\n\nTake your time with each step.  Just focus on noticing each sensation.  Let me know when you've done each one, or if you need a moment.  We'll do this together.\n\n\n\n",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "user",
+        "text": "I see my laptop, a water bottle, the window, a blue pen, and my lamp",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 2,
+        "role": "assistant",
+        "text": "Could you tell me more?",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 3,
+        "role": "user",
+        "text": "\u2019ve been staring at my screen for 10 hours. I\u2019m so exhausted but I can't stop working because the pile just grows.",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-01-28 23:41:12
+INFO:  Triage reasoning
+----------------------------------------
+{
+    "action": "ASK_FOLLOWUP"
+}
+================================================================================
+
+================================================================================
+EVENT: ACTION_EXECUTION
+TIME:  2026-01-28 23:41:12
+INFO:  Executing ASK_FOLLOWUP
+================================================================================
+
+================================================================================
+EVENT: LLM_RESPONSE
+TIME:  2026-01-28 23:41:12
+INFO:  Lenni's Final Reply
+----------------------------------------
+{
+    "reply": "Tell me more."
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_END
+TIME:  2026-01-28 23:41:13
+INFO:  Turn complete. Database synchronized.
+================================================================================
