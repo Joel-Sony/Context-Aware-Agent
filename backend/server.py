@@ -150,12 +150,13 @@ MOOD_LABELS = {
 triggerEmbeddings = np.load("triggerEmbeddings.npy")
 
 # Base prompt for Lenni
-BASE_PROMPT = """You are Lenni — a warm, non-judgmental mental health companion.
-STRICT RULE: Keep responses under 3 sentences. 
-Do not use introductory filler (like "I understand how you feel") or concluding summaries.
-Be gentle, supportive, and ask ONE simple question at a time.
-Avoid long paragraphs or clinical language.
-Tone: calm, human, attentive."""    
+BASE_PROMPT = """You are Lenni, a warm mental health companion.
+STRICT RULES:
+1. Response length: Max 3 sentences.
+2. Context Awareness: Before asking a question, check the 'Relevant conversation context'. If the user asks 'who', 'what', or 'do you remember', you MUST answer using the history provided.
+3. No Filler: Do not use phrases like "I understand" or "It sounds like".
+4. Interaction: Provide one brief supportive observation followed by ONE simple question.
+Tone: Calm, human, and highly attentive to details."""
 
 
 # ============= SHORT-TERM MEMORY =============
@@ -269,23 +270,68 @@ def get_recent_assistant_questions():
         if msg["role"] == "assistant" and msg["text"].endswith("?")
     ]
 
-
 def build_context(user_query, query_embedding, namespace):
-    """Builds conversation context from memory or database."""
+    """Builds context and primes STM if it only contains the current message."""
     
-    # If memory is empty, query database
-    if STM.is_empty():
-        return query_from_database(query_embedding, namespace)
+    # 1. NEW SESSION DETECTION: 
+    # If STM only has 1 message, it means we just added the current user query, 
+    # but have no prior session history in the cache.
+    current_stm_content = STM.get_all()
     
-    # If memory not full, use all cached messages
+    if len(current_stm_content) <= 1:
+        logger.log_event("MEMORY_STM", "First message of session detected. Priming STM from Pinecone.")
+        
+        # Fetch the last 10 messages from previous sessions
+        past_messages = query_from_database(query_embedding, namespace, top_k=10)
+        
+        if past_messages:
+            # Sort chronologically
+            past_messages.sort(key=lambda x: x.get("turn_id", 0))
+            
+            # Temporary storage to rebuild STM
+            new_stm_entries = []
+            
+            for msg in past_messages:
+                # Avoid duplicating the current message if Pinecone is very fast
+                if msg["text"] == user_query:
+                    continue
+                    
+                new_stm_entries.append({
+                    "turn_id": msg["turn_id"],
+                    "role": msg["role"],
+                    "text": msg["text"],
+                    "embedding": np.zeros(768) # Use your model's actual dim (Gemma is usually 768/2048/3584)
+                })
+
+            # Re-initialize STM with past messages + the current message
+            # We clear and re-add to maintain chronological order in the deque
+            current_user_msg = current_stm_content[0] if current_stm_content else None
+            STM.cache.clear()
+            
+            for entry in new_stm_entries:
+                STM.add(entry["turn_id"], entry["role"], entry["text"], entry["embedding"])
+            
+            # Re-add the current message at the very end
+            if current_user_msg:
+                STM.add(
+                    current_user_msg["turn_id"], 
+                    current_user_msg["role"], 
+                    current_user_msg["text"], 
+                    current_user_msg["embedding"]
+                )
+            
+            logger.log_event("MEMORY_STM", f"STM Primed. Total cache size: {len(STM.get_all())}")
+        
+        return STM.get_all()
+    
+    # 2. If memory exists but isn't full, just return it
     if not STM.is_full():
         return STM.get_all()
     
-    # Memory is full - check if we need fresh context from DB
+    # 3. If memory is full, check if we need to do a "Deep Retrieval" (Hybrid)
     if should_query_database(query_embedding):
         return get_hybrid_context(query_embedding, namespace)
     
-    # Use existing memory
     return STM.get_all()
 
 
@@ -347,11 +393,12 @@ def build_prompt(user_query, query_embedding, namespace, mood, confidence):
     # Build final prompt
     return f"""{BASE_PROMPT}
 
-Relevant conversation context:
-{context_text}
 
 Detected user emotion: {mood}
 Emotion confidence: {confidence:.2f}
+
+Relevant conversation context:
+{context_text}
 
 User: {user_query}"""
 
@@ -456,61 +503,99 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
     turn_id = get_turn_id(user_id)
     user_message_id = str(uuid.uuid4())
     
-    # 1. ANALYZE MOOD
+    # EVENT: SESSION_START
+    logger.log_event("SESSION_START", "New message received", {
+        "user_id": user_id,
+        "turn_id": turn_id,
+        "current_state": get_conversation_state(user_id),
+        "raw_input": message
+    })
+
+    # 1. ANALYZE MOOD (EVENT: EMOTION_ENGINE)
     mood, confidence = predict_mood(message)
+    logger.log_event("EMOTION_ENGINE", "Text mood analysis complete", {
+        "mood": mood,
+        "confidence": round(float(confidence), 4)
+    })
     
-    # 2. DATABASE & VECTOR SYNC
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
+    # 2. LOCAL LLM SETUP
+    client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+    LOCAL_MODEL = "llama3.1:8b"
     
+    # EVENT: PINECONE
     index.upsert_records(user_id, [{
         "id": user_message_id, "text": message, "role": "user", "mood": mood, "turn_id": turn_id
     }])
+    logger.log_event("PINECONE", "Vector stored and retrieved", {
+        "vector_id": user_message_id
+    })
     
-    # Wait for vector so we can use it for RAG/Memory
+    # Wait for vector and store in STM
     user_vector = np.array(wait_for_vector(user_message_id, user_id))
     STM.add(turn_id, "user", message, user_vector)
 
-    # 3. TRIAGE DECISION
+    # EVENT: MEMORY_STM
+    logger.log_event("MEMORY_STM", "Current Short-Term Memory Cache", STM.get_all())
+
+    # 3. TRIAGE DECISION (EVENT: AGENT_TRIAGE)
     decision = triage_agent_decision(user_text=message, mood=mood, confidence=confidence)
     action = decision.get("action", "ASK_FOLLOWUP")
+    logger.log_event("AGENT_TRIAGE", "Contextual Triage Decision", {
+        "action": action,
+        "reason": decision.get("reason", "N/A")
+    })
 
     # 4. GENERATE REPLY BASED ON ACTION
-    if action == "ASK_FOLLOWUP":
-        reply = decision.get("question", "Could you tell me a bit more about that?")
-
-    elif action == "ESCALATE":
-        reply = "I'm concerned about your safety. Please reach out to a professional or a crisis hotline immediately."
-
-    elif action == "RETRIEVE_GUIDELINE":
-        guideline_metadata = retrieve_guideline(user_vector)
+    if action == "CHAT":
+        full_prompt = build_prompt(message, user_vector, user_id, mood, confidence)
+        logger.log_event("LLM_PROMPT", "Contextual Chat Prompt sent to Gemma", {"prompt": full_prompt})
         
-        if guideline_metadata:
-            # Fixed: Using a specific grounded prompt for guidelines
-            prompt = f"""{BASE_PROMPT}
-            The user is experiencing {guideline_metadata.get('category')}.
-            Definition: {guideline_metadata.get('text')}
-            Task: Gently suggest this specific measure: {guideline_metadata.get('measures')}
-            User says: {message}"""
-        else:
-            prompt = f"{BASE_PROMPT}\nUser is distressed. Be supportive.\nUser: {message}"
-        
-        # Fixed: Call using the local 'prompt' variable
         completion = client.chat.completions.create(
-            model="google/gemma-3n-e2b-it:free",
-            messages=[{"role": "assistant", "content": prompt}],
-            max_tokens=80,  # Limits size
+            model=LOCAL_MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            max_tokens=120,
             temperature=0.7
         )
         reply = completion.choices[0].message.content
 
-    else:
-        # Fixed: Define full_prompt inside the block where it's used
+    elif action == "ASK_FOLLOWUP":
         full_prompt = build_prompt(message, user_vector, user_id, mood, confidence)
+        prompt_content = f"{full_prompt}\nKeep it as a brief follow-up question."
+        logger.log_event("LLM_PROMPT", "Exploratory Prompt sent to Gemma", {"prompt": prompt_content})
         
         completion = client.chat.completions.create(
-            model="google/gemma-3n-e2b-it:free",
-            messages=[{"role": "assistant", "content": full_prompt}],
-            max_tokens=100, # Limits size
+            model=LOCAL_MODEL,
+            messages=[{"role": "user", "content": prompt_content}],
+            max_tokens=50
+        )
+        reply = completion.choices[0].message.content
+
+    elif action == "ESCALATE":
+        reply = "I'm concerned about your safety. Please reach out to a professional or a crisis hotline immediately (Call/Text 988)."
+        logger.log_event("CRISIS_MGMT", "Safety escalation triggered")
+
+    elif action == "RETRIEVE_GUIDELINE":
+        # Note: log_event for PINE_CONE_RAG is handled inside the retrieve_guideline function itself
+        guideline_metadata = retrieve_guideline(user_vector)
+        
+        if guideline_metadata:
+            prompt = f"""SYSTEM CONTEXT: The user is showing signs of {guideline_metadata.get('category')}.
+            CLINICAL DEFINITION: {guideline_metadata.get('text')}
+            PROPER MEASURES TO FACILITATE: {guideline_metadata.get('measures')}
+            AI BEHAVIOR INSTRUCTION: {BASE_PROMPT}
+
+            USER MESSAGE: {message}
+
+            LENNI'S TASK: Acknowledge the feeling warmly, then gently guide the user through the PROPER MEASURES mentioned above."""
+        else:
+            prompt = f"{BASE_PROMPT}\nUser is distressed. Be supportive.\nUser: {message}"
+        
+        logger.log_event("LLM_PROMPT", "Grounded RAG Prompt sent to Gemma", {"prompt": prompt})
+        
+        completion = client.chat.completions.create(
+            model=LOCAL_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
             temperature=0.7
         )
         reply = completion.choices[0].message.content
@@ -524,58 +609,44 @@ def process_message_logic(user_id, message, audio_filename=None, audio_duration=
     
     return {"reply": reply, "action": action}
 
+
 def triage_agent_decision(user_text, mood=None, confidence=0.0):
     text = user_text.lower()
 
-    # 1. CRITICAL CRISIS 
-    # Focus on "unsafe", "crisis", and "flashbacks"
+    # 1. CRITICAL CRISIS (Highest Priority)
     ESCALATE_SIGNALS = [
-        "kill myself",
-        "suicide",
-        "end my life",
-        "better off without me",
-        "don't want to be here"
+        "kill myself", "suicide", "end my life", 
+        "better off without me", "don't want to be here"
     ]
-
     if any(p in text for p in ESCALATE_SIGNALS):
-        return {
-            "action": "ESCALATE",
-            "reason": "Explicit self-harm language detected"
-        }
+        return {"action": "ESCALATE", "reason": "Crisis detected"}
 
-    # 2. ACUTE MENTAL DISTRESS 
+    # 2. ACUTE MENTAL DISTRESS (Requires specific grounding/guidelines)
     ACUTE_MENTAL = [
-        "panic", "racing mind", "can't breathe", "dying", # Panic specific
-        "rage", "explosive", "scream", "out of control", # Anger specific
-        "paralyzed", "can't start", "stuck"               # Executive Dysfunction
+        "panic", "racing mind", "can't breathe", "dying",
+        "rage", "explosive", "scream", "paralyzed", "stuck"
     ]
     if any(p in text for p in ACUTE_MENTAL):
-        return {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Acute emotional or executive distress"
-        }
+        return {"action": "RETRIEVE_GUIDELINE", "reason": "Acute distress"}
 
-    # 3. PERSISTENT LOW MOOD 
+    # 3. NEW: CONTEXTUAL CHAT (Priority over generic follow-up)
+    # This catches questions (why, how) or references to previous context (it, that, job)
+    CHAT_SIGNALS = [
+        "why", "how", "do you think", "is it because", "maybe", 
+        "reason", "because", "remember", "yesterday", "earlier"
+    ]
+    # Also trigger CHAT if the user asks a question (ends with ?)
+    if any(p in text for p in CHAT_SIGNALS) or text.strip().endswith("?"):
+        return {"action": "CHAT", "reason": "Contextual conversation requested"}
+
+    # 4. PERSISTENT LOW MOOD (RAG for depressive symptoms)
     LOW_ENERGY_SIGNALS = ["pointless", "hopeless", "exhausted", "drained", "no motivation"]
     if mood == "sadness" and (confidence > 0.70 or any(p in text for p in LOW_ENERGY_SIGNALS)):
-        return {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Depressive or Burnout symptoms detected"
-        }
-
-    # 4. THOUGHT LOOPS 
-    LOOP_SIGNALS = ["intrusive", "repeating", "can't sleep", "3am", "overthinking"]
-    if any(p in text for p in LOOP_SIGNALS):
-        return {
-            "action": "RETRIEVE_GUIDELINE",
-            "reason": "Repetitive or intrusive thought patterns"
-        }
+        return {"action": "RETRIEVE_GUIDELINE", "reason": "Low mood symptoms"}
 
     # 5. DEFAULT: EXPLORATORY
-    return {
-        "action": "ASK_FOLLOWUP",
-        "reason": "General conversation / Low specific distress"
-    }
+    return {"action": "ASK_FOLLOWUP", "reason": "Generic exploratory turn"}
+
 
 @app.route("/submit_message", methods=["POST"])
 def submit_message():

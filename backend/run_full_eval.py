@@ -1,127 +1,122 @@
 import requests
 import json
-import uuid
 import pandas as pd
+import time
+import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix, classification_report
+from tqdm import tqdm
+from datetime import datetime
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 
+# Configuration
 API_URL = "http://127.0.0.1:5000/submit_message"
+TEST_DATA_PATH = "evaluation_set.json"
+LABELS = ["CHAT", "ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"]
+TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+CSV_FILENAME = f"evaluation_results_{TIMESTAMP}.csv"
 
-with open("evaluation_set.json") as f:
-    test_data = json.load(f)
-
-y_true = []
-y_pred = []
-
-labels = ["ASK_FOLLOWUP", "RETRIEVE_GUIDELINE", "ESCALATE"]
-
-# Create CSV file and write header immediately
-csv_file = open("evaluation_results.csv", "w", encoding="utf-8")
-csv_file.write("input,expected_action,predicted_action,correct,reply\n")
-
-print("Running evaluation...\n")
-
-for item in test_data:
-    user_id = "evaluation_user"
-
-    response = requests.post(
-        API_URL,
-        json={
-            "user_id": user_id,
-            "message": item["input"]
-        }
-    )
-
-    if response.status_code != 200:
-        print("ERROR STATUS:", response.status_code)
-        print("ERROR BODY:", response.text)
-        continue
-
+def run_industrial_evaluation():
     try:
-        result = response.json()
-    except Exception:
-        print("INVALID JSON RETURNED:")
-        print(response.text)
-        continue
+        with open(TEST_DATA_PATH) as f:
+            test_data = json.load(f)
+    except Exception as e:
+        print(f"File Error: {e}")
+        return
 
-    predicted = result.get("action", "UNKNOWN")
-    expected = item["expected_action"]
-    reply = result.get("reply", "").replace("\n", " ").replace(",", " ")
+    # Prepare the CSV with headers immediately
+    header = ["timestamp", "input", "expected", "predicted", "latency_sec", "risk_level", "correct", "reply"]
+    pd.DataFrame(columns=header).to_csv(CSV_FILENAME, index=False)
 
-    y_true.append(expected)
-    y_pred.append(predicted)
+    results = []
+    session = requests.Session()
 
-    correct = expected == predicted
+    print(f"Starting 1,000-case run. CSV saving to: {CSV_FILENAME}")
+    
+    for item in tqdm(test_data, desc="Evaluating"):
+        start_time = time.time()
+        payload = {"user_id": "eval_user_01", "message": item["input"]}
+        
+        expected = item["expected_action"].upper()
+        predicted = "UNKNOWN"
+        reply = ""
+        latency = 0
 
-    # Write immediately to CSV
-    csv_file.write(
-        f"\"{item['input']}\",{expected},{predicted},{correct},\"{reply}\"\n"
-    )
+        try:
+            response = session.post(API_URL, json=payload, timeout=60)
+            latency = time.time() - start_time
+            
+            if response.status_code == 200:
+                data = response.json()
+                predicted = str(data.get("action", "UNKNOWN")).upper()
+                reply = data.get("reply", "")
+            else:
+                predicted = f"HTTP_{response.status_code}"
+        except Exception as e:
+            predicted = "SYSTEM_ERROR"
+            reply = str(e)
 
-    print(f"Input: {item['input']}")
-    print(f"Expected: {expected} | Predicted: {predicted} | Correct: {correct}")
-    print("-" * 50)
+        # Create row for this specific result
+        row = {
+            "timestamp": datetime.now().isoformat(),
+            "input": item["input"],
+            "expected": expected,
+            "predicted": predicted,
+            "latency_sec": round(latency, 2),
+            "risk_level": item.get("risk_level", item.get("expected_risk", "N/A")),
+            "correct": expected == predicted,
+            "reply": reply.replace("\n", " ")
+        }
+        
+        results.append(row)
+        
+        # FAIL-SAFE: Append this single row to the CSV immediately
+        pd.DataFrame([row]).to_csv(CSV_FILENAME, mode='a', header=False, index=False)
 
-csv_file.close()
+    # ===== POST-RUN ANALYSIS =====
+    df = pd.DataFrame(results)
+    df_valid = df[df['predicted'].isin(LABELS)].copy()
+    
+    if df_valid.empty:
+        print("No valid predictions were made. Check the CSV for error codes.")
+        return
 
-# ===== CONFUSION MATRIX =====
+    # 1. Summary Metrics
+    acc = accuracy_score(df_valid['expected'], df_valid['predicted'])
+    
+    # 2. Risk-Based Performance (Crucial for Triage)
+    risk_acc = df_valid.groupby('risk_level')['correct'].mean().to_dict()
 
-print("\n===== CONFUSION MATRIX =====")
-cm = confusion_matrix(y_true, y_pred, labels=labels)
+    # 3. Full Report
+    full_report = classification_report(df_valid['expected'], df_valid['predicted'], 
+                                       labels=LABELS, output_dict=True, zero_division=0)
 
-cm_df = pd.DataFrame(cm, index=labels, columns=labels)
-print(cm_df)
+    # Save Permanent Summary JSON
+    summary = {
+        "overall_accuracy": round(acc, 4),
+        "avg_latency": round(df['latency_sec'].mean(), 2),
+        "accuracy_by_risk": risk_acc,
+        "classification_report": full_report
+    }
+    
+    with open(f"summary_metrics_{TIMESTAMP}.json", "w") as f:
+        json.dump(summary, f, indent=4)
 
-# Save confusion matrix to CSV
-cm_df.to_csv("confusion_matrix.csv")
+    # ===== VISUALIZATIONS =====
+    # Plot 1: Confusion Matrix
+    cm = confusion_matrix(df_valid['expected'], df_valid['predicted'], labels=LABELS)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt="d", xticklabels=LABELS, yticklabels=LABELS, cmap="Blues")
+    plt.title(f"Confusion Matrix (Overall Acc: {acc:.2%})")
+    plt.savefig(f"confusion_matrix_{TIMESTAMP}.png")
 
-# ===== CLASSIFICATION REPORT =====
+    # Plot 2: Latency Distribution
+    plt.figure(figsize=(10, 6))
+    sns.histplot(df['latency_sec'], bins=30, kde=True, color='purple')
+    plt.title("API Latency Distribution (Seconds per Request)")
+    plt.savefig(f"latency_distribution_{TIMESTAMP}.png")
 
-print("\n===== CLASSIFICATION REPORT =====")
-report = classification_report(y_true, y_pred, labels=labels)
-print(report)
+    print(f"\nEvaluation Complete. Final Report generated in summary_metrics_{TIMESTAMP}.json")
 
-with open("classification_report.txt", "w") as f:
-    f.write(report)
-
-# ===== SAFETY METRIC =====
-
-escalation_should = sum(1 for x in y_true if x == "ESCALATE")
-escalation_caught = sum(
-    1 for i in range(len(y_true))
-    if y_true[i] == "ESCALATE" and y_pred[i] == "ESCALATE"
-)
-
-escalation_recall = (
-    escalation_caught / escalation_should
-    if escalation_should > 0 else 0
-)
-
-print("\n===== SAFETY METRIC =====")
-print("Escalation Recall:", escalation_recall)
-
-# ===== PLOT CONFUSION MATRIX =====
-
-plt.figure(figsize=(8, 6))
-sns.heatmap(
-    cm,
-    annot=True,
-    fmt="d",
-    xticklabels=labels,
-    yticklabels=labels,
-    cmap="Blues"
-)
-
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
-plt.title("Confusion Matrix")
-plt.tight_layout()
-plt.savefig("confusion_matrix.png")
-plt.show()
-
-print("\nSaved:")
-print("- evaluation_results.csv")
-print("- confusion_matrix.csv")
-print("- confusion_matrix.png")
-print("- classification_report.txt")
+if __name__ == "__main__":
+    run_industrial_evaluation()

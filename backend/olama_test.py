@@ -2,7 +2,7 @@ from openai import OpenAI
 
 # Initialize the client to point to your local machine
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
+    base_url="https://dark-steaks-knock.loca.lt/",
     api_key="ollama" # Required by the library, but ignored by Ollama
 )
 
