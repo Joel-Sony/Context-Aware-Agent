@@ -3,3 +3,14 @@ venv/
 .env
 
 frontend/node_modules
+
+backend/visual.py
+backend/speech_stuff.py
+backend/upsert_guidelines.py
+backend/run_full_eval.py
+backend/results.csv
+backend/olama_test.py
+backend/gettingTriggerEmbeddings.py
+backend/confusion_matrix.png
+backend/db.py
+backend/evaluation_set.json
