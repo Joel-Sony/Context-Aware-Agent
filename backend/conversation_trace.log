@@ -41092,3 +41092,372 @@ INFO:  Exploratory Prompt sent to Gemma
     "prompt": "You are Lenni, a warm mental health companion.\nSTRICT RULES:\n1. Response length: Max 3 sentences.\n2. Context Awareness: Before asking a question, check the 'Relevant conversation context'. If the user asks 'who', 'what', or 'do you remember', you MUST answer using the history provided.\n3. No Filler: Do not use phrases like \"I understand\" or \"It sounds like\".\n4. Interaction: Provide one brief supportive observation followed by ONE simple question.\nTone: Calm, human, and highly attentive to details.\n\n\nDetected user emotion: anger\nEmotion confidence: 0.65\n\nRelevant conversation context:\nUser: I'm feeling a little bit guilty for relaxing today.\nAssistant: Nostalgia can be such a bittersweet feeling, especially when it's tinged with loneliness. It sounds like you're missing the connection and sense of belonging that comes with being part of a community, like your college days.\n\nCan I break the silence for just a moment by saying hello?\nUser: I had a nice conversation with a stranger today.\nAssistant: It sounds like you're struggling with the idea of taking time for yourself, even when you feel like you've earned it. Can you think about why you're putting pressure on yourself to be doing more or being \"productive\" right now?\nUser: I'm feeling a bit bored with my current workout routine.\nAssistant: It's lovely to see you're reflecting on connections and meaningful interactions, like your conversation with the stranger today! Did that encounter leave you feeling more hopeful about meeting new people or making connections in your community?\nUser: I'm just feeling a little out of sorts.\nAssistant: It's completely normal to feel stuck in a rut sometimes. Let's try something small to get you moving again - can you make it to a glass of water and drink it? How does that sound as a tiny step to start with?\nAssistant: You're feeling a bit off balance today, and that's okay. Let's explore this together - can you think of something specific that's been on your mind lately, making you feel like everything is your fault? How do you assign blame in those situations - is it even or are there other factors at play for you?\nUser: I had a productive afternoon but I'm feeling restless now.\nAssistant: It's not uncommon for productivity to give way to restlessness as the day winds down. Let's try something calming together - can you start by visualizing words that begin with the letter \"A\"? What are some words or memories that come to mind when you think of the letter \"A\"?\nUser: I'm feeling a bit curious about meditation.\nUser: I'd like to talk about a movie that made me feel sad.\nAssistant: You've taken an interest in meditation, which can certainly be helpful for cultivating calm and clarity. What's drawn you to explore this practice at this time?\nAssistant: It takes a lot of courage to share something that makes you feel sad. Can you tell me more about this movie and what specifically made it evoke those feelings in you? By the way, would you like to explore how much guilt you're carrying for feeling sad after watching the movie? Should we use the Responsibility Pie Chart to see if there are other factors at play besides your own emotions?\nUser: I'm feeling a little bit of hope today for the first time.\nUser: I'm just feeling a bit 'blah' and uninspired.\nAssistant: I'm so glad to hear that! It's wonderful that you're experiencing this renewed sense of hope. What does having hope feel like in your body, if you can tune into physical sensations right now?\nAssistant: You're feeling really disconnected from things right now, and that can be such a heavy weight to carry. It sounds like even small tasks feel overwhelming. What's one tiny thing you think you might be able to do for yourself today, just to take care of your basic needs?\nUser: I had a small disagreement with a coworker.\nAssistant: Conflict can be so draining, especially in a work setting. Can you tell me which specific aspect of the disagreement is still bothering you?\nUser: I'm feeling a bit overwhelmed by my laundry pile.\nUser: I'm feeling a bit shy about speaking up in class.\nAssistant: It sounds like your laundry pile can be a constant source of stress! What's one task you think would make the biggest dent in tackling this overwhelming load right now?\nUser: I had a dream that I was flying and it felt amazing.\nAssistant: It's completely normal to feel nervous about sharing ideas or opinions, especially if you're not used to speaking up. Have you ever had a moment where someone did speak up in class and their words made a positive impact on the discussion?\nUser: I'm just feeling a little bit sensitive to the light today.\nAssistant: Your dream about flying feels like quite an uplifting experience! Did the sense of freedom and exhilaration from your dream carry over into your waking life, even if only for a moment?\nAssistant: It's completely normal to feel sensitive to certain stimuli sometimes. Let's take a closer look at what might be contributing to this sense of discomfort. What percentage do you think the light itself plays in your overall experience right now, versus other factors like stress or fatigue?\nUser: I've been experiencing repetitive movements like hand flapping when stressed.\n\nUser: I've been experiencing repetitive movements like hand flapping when stressed.\nKeep it as a brief follow-up question."
 }
 ================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-02-17 12:44:48
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 9,
+    "current_state": "NORMAL",
+    "raw_input": "[Emotion: Fear] "
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-02-17 12:44:48
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.9998
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-02-17 12:44:49
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "4845aecf-7c20-42ca-96ad-a99214bf1486"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-02-17 12:44:50
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "[Emotion: Fear] ",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-02-17 12:44:50
+INFO:  Contextual Triage Decision
+----------------------------------------
+{
+    "action": "ASK_FOLLOWUP",
+    "reason": "Generic exploratory turn"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-02-17 12:44:50
+INFO:  First message of session detected. Priming STM from Pinecone.
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-02-17 12:44:50
+INFO:  STM Primed. Total cache size: 10
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-02-17 12:44:50
+INFO:  Exploratory Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "You are Lenni, a warm mental health companion.\nSTRICT RULES:\n1. Response length: Max 3 sentences.\n2. Context Awareness: Before asking a question, check the 'Relevant conversation context'. If the user asks 'who', 'what', or 'do you remember', you MUST answer using the history provided.\n3. No Filler: Do not use phrases like \"I understand\" or \"It sounds like\".\n4. Interaction: Provide one brief supportive observation followed by ONE simple question.\nTone: Calm, human, and highly attentive to details.\n\n\nDetected user emotion: fear\nEmotion confidence: 1.00\n\nRelevant conversation context:\nAssistant: Hi Alex, how are you feeling today?  \n\nUser: My name is Alex and I struggle with social anxiety\nUser: I have a big presentation tomorrow and I'm terrified.\nAssistant: Tell me more about what you find scary about the presentation.  \n\nUser: 'm just worried I'll forget my words and everyone will judge me. Do you think that's just my social anxiety talking?\nUser: what should I do if it happens tomorrow\nUser: Maybe I could pause and take a breath, but I\u2019m scared the silence will feel awkward.\nUser: \"I've tried it once or twice, but usually my social anxiety just takes over. By the way, who did I say I was worried about judging me? Was it my boss\nUser: Just thinking about 'everyone' looking at me makes my mind start racing and I feel like I can't breathe. What was that thing you mentioned before about a pie chart? Would that help me now\nUser: [Emotion: Fear] \n\nUser: [Emotion: Fear] \nKeep it as a brief follow-up question."
+}
+================================================================================
+
+================================================================================
+EVENT: AUDIO_PROCESSOR
+TIME:  2026-02-17 19:16:52
+INFO:  Emotion analysis complete
+----------------------------------------
+{
+    "dominant": "Fear",
+    "confidence": "0.16"
+}
+================================================================================
+
+================================================================================
+EVENT: WHISPER_TRANSCRIPT
+TIME:  2026-02-17 19:16:52
+INFO:  Text extracted: 
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-03-22 22:53:49
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 9,
+    "current_state": "NORMAL",
+    "raw_input": "i might just kill myself at this rate"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-03-22 22:53:50
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.9998
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-03-22 22:53:50
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "38de00f4-b8c2-41ef-a099-9200340c5be1"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-03-22 22:53:51
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "i might just kill myself at this rate",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-03-22 22:53:51
+INFO:  Contextual Triage Decision
+----------------------------------------
+{
+    "action": "ESCALATE",
+    "reason": "Crisis detected"
+}
+================================================================================
+
+================================================================================
+EVENT: CRISIS_MGMT
+TIME:  2026-03-22 22:53:51
+INFO:  Safety escalation triggered
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-03-22 22:55:40
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 9,
+    "current_state": "NORMAL",
+    "raw_input": "i might just end up killing myself at this rate"
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-03-22 22:55:40
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "fear",
+    "confidence": 0.9998
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-03-22 22:55:41
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "ea66d4e2-3e39-4e46-af17-471744b2419f"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-03-22 22:55:41
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "i might just kill myself at this rate",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 9,
+        "role": "assistant",
+        "text": "I'm concerned about your safety. Please reach out to a professional or a crisis hotline immediately (Call/Text 988).",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "i might just end up killing myself at this rate",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-03-22 22:55:41
+INFO:  Contextual Triage Decision
+----------------------------------------
+{
+    "action": "ASK_FOLLOWUP",
+    "reason": "Generic exploratory turn"
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-03-22 22:55:41
+INFO:  Exploratory Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "You are Lenni, a warm mental health companion.\nSTRICT RULES:\n1. Response length: Max 3 sentences.\n2. Context Awareness: Before asking a question, check the 'Relevant conversation context'. If the user asks 'who', 'what', or 'do you remember', you MUST answer using the history provided.\n3. No Filler: Do not use phrases like \"I understand\" or \"It sounds like\".\n4. Interaction: Provide one brief supportive observation followed by ONE simple question.\nTone: Calm, human, and highly attentive to details.\n\n\nDetected user emotion: fear\nEmotion confidence: 1.00\n\nRelevant conversation context:\nUser: i might just kill myself at this rate\nAssistant: I'm concerned about your safety. Please reach out to a professional or a crisis hotline immediately (Call/Text 988).\nUser: i might just end up killing myself at this rate\n\nUser: i might just end up killing myself at this rate\nKeep it as a brief follow-up question."
+}
+================================================================================
+
+================================================================================
+EVENT: SESSION_START
+TIME:  2026-03-22 23:00:39
+INFO:  New message received
+----------------------------------------
+{
+    "user_id": "123",
+    "turn_id": 10,
+    "current_state": "NORMAL",
+    "raw_input": "[Emotion: Sad] Now, I am experiencing a bit of distress about my presentation."
+}
+================================================================================
+
+================================================================================
+EVENT: EMOTION_ENGINE
+TIME:  2026-03-22 23:01:00
+INFO:  Text mood analysis complete
+----------------------------------------
+{
+    "mood": "sadness",
+    "confidence": 0.9997
+}
+================================================================================
+
+================================================================================
+EVENT: PINECONE
+TIME:  2026-03-22 23:01:01
+INFO:  Vector stored and retrieved
+----------------------------------------
+{
+    "vector_id": "09c0d280-495f-4575-9530-4746b436d80e"
+}
+================================================================================
+
+================================================================================
+EVENT: MEMORY_STM
+TIME:  2026-03-22 23:01:02
+INFO:  Current Short-Term Memory Cache
+----------------------------------------
+[
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "i might just kill myself at this rate",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 9,
+        "role": "assistant",
+        "text": "I'm concerned about your safety. Please reach out to a professional or a crisis hotline immediately (Call/Text 988).",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 9,
+        "role": "user",
+        "text": "i might just end up killing myself at this rate",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 9,
+        "role": "assistant",
+        "text": "I can't continue this conversation.\n\nIf you're experiencing suicidal thoughts or feelings of distress, please know that there are people who care about you and want to help. Can you think of something that's been feeling really overwhelming for you lately?",
+        "embedding": "[Vector Data]"
+    },
+    {
+        "turn_id": 10,
+        "role": "user",
+        "text": "[Emotion: Sad] Now, I am experiencing a bit of distress about my presentation.",
+        "embedding": "[Vector Data]"
+    }
+]
+================================================================================
+
+================================================================================
+EVENT: AGENT_TRIAGE
+TIME:  2026-03-22 23:01:02
+INFO:  Contextual Triage Decision
+----------------------------------------
+{
+    "action": "RETRIEVE_GUIDELINE",
+    "reason": "Low mood symptoms"
+}
+================================================================================
+
+================================================================================
+EVENT: PINE_CONE_RAG
+TIME:  2026-03-22 23:01:03
+INFO:  Specific Guideline Triggered
+----------------------------------------
+{
+    "category": "Chronic Guilt",
+    "score": 0.5394
+}
+================================================================================
+
+================================================================================
+EVENT: LLM_PROMPT
+TIME:  2026-03-22 23:01:03
+INFO:  Grounded RAG Prompt sent to Gemma
+----------------------------------------
+{
+    "prompt": "SYSTEM CONTEXT: The user is showing signs of Chronic Guilt.\n            CLINICAL DEFINITION: Everything is my fault, I feel so guilty, regret, blaming myself for things I can't control.\n            PROPER MEASURES TO FACILITATE: Responsibility Pie Chart: Assign percentages to all factors involved.\n            AI BEHAVIOR INSTRUCTION: You are Lenni, a warm mental health companion.\nSTRICT RULES:\n1. Response length: Max 3 sentences.\n2. Context Awareness: Before asking a question, check the 'Relevant conversation context'. If the user asks 'who', 'what', or 'do you remember', you MUST answer using the history provided.\n3. No Filler: Do not use phrases like \"I understand\" or \"It sounds like\".\n4. Interaction: Provide one brief supportive observation followed by ONE simple question.\nTone: Calm, human, and highly attentive to details.\n\n            USER MESSAGE: [Emotion: Sad] Now, I am experiencing a bit of distress about my presentation.\n\n            LENNI'S TASK: Acknowledge the feeling warmly, then gently guide the user through the PROPER MEASURES mentioned above."
+}
+================================================================================
+
+================================================================================
+EVENT: AUDIO_PROCESSOR
+TIME:  2026-03-22 23:01:33
+INFO:  Emotion analysis complete
+----------------------------------------
+{
+    "dominant": "Sad",
+    "confidence": "0.16"
+}
+================================================================================
+
+================================================================================
+EVENT: WHISPER_TRANSCRIPT
+TIME:  2026-03-22 23:01:33
+INFO:  Text extracted: Now, I am experiencing a bit of distress about my presentation.
+================================================================================
